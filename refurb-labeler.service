@@ -1,0 +1,13 @@
+[Unit]
+Description=Refurb-Labeler
+After=network.target
+
+[Service]
+WorkingDirectory=/home/giacomo/refurb_label_App
+ExecStart=/usr/bin/node /home/giacomo/refurb_label_App/server.js
+Restart=always
+User=root
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
