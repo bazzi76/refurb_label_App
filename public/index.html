@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gruppo Sim Tel — Refurb Label</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0d1117;
+      --bg2:        #161b22;
+      --bg3:        #1c2128;
+      --border:     #30363d;
+      --border2:    #21262d;
+      --accent:     #2ea8e0;
+      --accent-dim: rgba(46,168,224,0.12);
+      --ok:         #3fb950;
+      --ok-dim:     rgba(63,185,80,0.12);
+      --nok:        #f85149;
+      --nok-dim:    rgba(248,81,73,0.12);
+      --text:       #e6edf3;
+      --text2:      #8b949e;
+      --text3:      #484f58;
+      --mono:       'JetBrains Mono', monospace;
+      --sans:       'Inter', sans-serif;
+      --radius:     8px;
+    }
+
+    html, body {
+      height: 100%;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── TOPBAR ── */
+    .topbar {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .topbar img {
+      height: 38px;
+      width: auto;
+    }
+    .topbar-title {
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--text2);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      text-align: right;
+    }
+    .topbar-title strong {
+      display: block;
+      color: var(--accent);
+      font-size: 0.9rem;
+      letter-spacing: 0.02em;
+    }
+    .btn-report {
+      padding: 8px 18px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text2);
+      font-family: var(--sans);
+      font-size: 0.82rem;
+      font-weight: 600;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .btn-report:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── MAIN ── */
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2.5rem 1.5rem;
+      gap: 1.5rem;
+    }
+
+    .page-title {
+      text-align: center;
+    }
+    .page-title h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+    .page-title h1 span { color: var(--accent); }
+    .page-title p {
+      font-size: 0.82rem;
+      color: var(--text2);
+      margin-top: 4px;
+    }
+
+    /* ── CARD ── */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      width: 100%;
+      max-width: 460px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    .field-label {
+      display: block;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text2);
+      margin-bottom: 10px;
+    }
+
+    .input-wrap {
+      display: flex;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      background: var(--bg);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .input-wrap:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(46,168,224,0.15);
+    }
+    .prefix {
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      font-family: var(--mono);
+      font-size: 1.05rem;
+      font-weight: 500;
+      color: var(--accent);
+      background: var(--bg3);
+      border-right: 1px solid var(--border);
+      flex-shrink: 0;
+      letter-spacing: 0.05em;
+    }
+    input[type="text"] {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 1.4rem;
+      font-weight: 500;
+      letter-spacing: 0.15em;
+      padding: 14px 16px;
+      width: 100%;
+    }
+    input[type="text"]::placeholder { color: var(--text3); }
+
+    .hint {
+      font-family: var(--mono);
+      font-size: 0.67rem;
+      color: var(--text3);
+      margin-top: 8px;
+    }
+
+    /* ── BUTTON VERIFICA ── */
+    .btn-verify {
+      margin-top: 1.25rem;
+      width: 100%;
+      padding: 14px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-family: var(--sans);
+      font-size: 0.92rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .btn-verify:hover   { background: #3dbcf7; box-shadow: 0 4px 16px rgba(46,168,224,0.3); }
+    .btn-verify:active  { transform: scale(0.98); }
+    .btn-verify:disabled { background: var(--bg3); color: var(--text3); border: 1px solid var(--border); cursor: not-allowed; box-shadow: none; transform: none; }
+    .btn-verify.loading .spinner { display: block; }
+    .btn-verify.loading .btn-text { opacity: 0.6; }
+
+    /* ── BUTTON ── */
+    .btn-print {
+      margin-top: 1.25rem;
+      width: 100%;
+      padding: 14px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-family: var(--sans);
+      font-size: 0.92rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .btn-print:hover   { background: #3dbcf7; box-shadow: 0 4px 16px rgba(46,168,224,0.3); }
+    .btn-print:active  { transform: scale(0.98); }
+    .btn-print:disabled { background: var(--bg3); color: var(--text3); border: 1px solid var(--border); cursor: not-allowed; box-shadow: none; transform: none; }
+
+    /* Bottoni azioni secondarie (collaudo + pdf) */
+    .btn-actions {
+      display: none;   /* visibile solo dopo stampa OK */
+      gap: 8px;
+      margin-top: 0.75rem;
+    }
+    .btn-actions.visible { display: flex; }
+    .btn-action {
+      flex: 1;
+      padding: 10px 8px;
+      border-radius: 6px;
+      font-family: var(--sans);
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      cursor: pointer;
+      transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+      background: transparent;
+    }
+    .btn-action:active  { transform: scale(0.97); }
+    .btn-action:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+    .btn-action.green {
+      color: var(--ok);
+      border: 1px solid var(--ok);
+    }
+    .btn-action.green:hover:not(:disabled) { background: var(--ok-dim); box-shadow: 0 4px 14px rgba(63,185,80,0.2); }
+    .btn-action.blue {
+      color: #58a6ff;
+      border: 1px solid #58a6ff;
+    }
+    .btn-action.blue:hover:not(:disabled) { background: rgba(88,166,255,0.08); box-shadow: 0 4px 14px rgba(88,166,255,0.2); }
+
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    .btn-print.loading .spinner { display: block; }
+    .btn-print.loading .btn-text { opacity: 0.6; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── RESULT ── */
+    .result {
+      margin-top: 1.25rem;
+      border-radius: 6px;
+      overflow: hidden;
+      display: none;
+      animation: fadeUp 0.25s ease;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .result-header {
+      padding: 10px 16px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .result.ok  .result-header { background: var(--ok-dim);  color: var(--ok);  border: 1px solid rgba(63,185,80,0.25); border-bottom: none; border-radius: 6px 6px 0 0; }
+    .result.nok .result-header { background: var(--nok-dim); color: var(--nok); border: 1px solid rgba(248,81,73,0.25); border-bottom: none; border-radius: 6px 6px 0 0; }
+
+    .result-body {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 6px 6px;
+      padding: 1rem 1.25rem;
+    }
+    .result-body .msg {
+      font-size: 0.88rem;
+      color: var(--text2);
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+
+    /* Label preview */
+    .label-preview {
+      background: #fff;
+      color: #000;
+      border-radius: 4px;
+      padding: 10px 14px;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      line-height: 1.7;
+      display: none;
+      margin-bottom: 12px;
+      border: 2px dashed #ccc;
+    }
+    .label-preview .lbl-head {
+      font-size: 0.82rem;
+      font-weight: 700;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 5px;
+      margin-bottom: 6px;
+      letter-spacing: 0.03em;
+    }
+    .label-preview .lbl-row { display: flex; gap: 6px; }
+    .label-preview .lbl-row .k { color: #888; min-width: 72px; }
+
+    /* Data table */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+    }
+    .data-table td {
+      padding: 5px 4px;
+      border-bottom: 1px solid var(--border2);
+      vertical-align: top;
+    }
+    .data-table td:first-child { color: var(--text2); white-space: nowrap; width: 80px; }
+    .data-table td:last-child  { color: var(--text); word-break: break-all; }
+    .data-table tr:last-child td { border-bottom: none; }
+
+    /* ── STATO ETICHETTA BADGE ── */
+    .badge-stampata {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: var(--ok-dim);
+      color: var(--ok);
+      border: 1px solid rgba(63,185,80,0.3);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+    .badge-non-stampata {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(248,81,73,0.08);
+      color: var(--nok);
+      border: 1px solid rgba(248,81,73,0.3);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      text-align: center;
+      padding: 20px;
+      border-top: 1px solid var(--border2);
+      font-size: 0.72rem;
+      color: var(--text3);
+      line-height: 1.7;
+    }
+    footer .credits {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    footer .credits .by { color: var(--text2); font-weight: 500; }
+    footer .credits .claude {
+      color: var(--accent);
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    footer .credits .claude::before {
+      content: '✦';
+      font-size: 0.6rem;
+    }
+
+    /* ── STATUSBAR ── */
+    .statusbar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      color: var(--text3);
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+    .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--ok);
+      animation: pulse 2.5s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.25} }
+
+    /* ── DIALOG CONFERMA RISTAMPA ── */
+    .dialog-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .dialog-overlay.open { display: flex; animation: fadeUp 0.15s ease; }
+    .dialog {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-top: 3px solid #e3a008;
+      border-radius: var(--radius);
+      padding: 1.75rem 2rem;
+      max-width: 380px;
+      width: 90%;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+    }
+    .dialog-icon { font-size: 2rem; margin-bottom: 0.75rem; }
+    .dialog h2   { font-size: 1rem; font-weight: 700; color: #e3a008; margin-bottom: 0.5rem; }
+    .dialog p    { font-size: 0.85rem; color: var(--text2); line-height: 1.6; margin-bottom: 1.25rem; }
+    .dialog p strong { color: var(--text); }
+    .dialog-actions { display: flex; gap: 10px; }
+    .dialog-actions button {
+      flex: 1; padding: 10px; border-radius: 6px;
+      font-family: var(--sans); font-size: 0.85rem; font-weight: 600;
+      cursor: pointer; border: none; transition: opacity 0.15s; margin-top: 0;
+    }
+    .dialog-actions button:hover { opacity: 0.85; }
+    .btn-cancel  { background: var(--bg3); color: var(--text2); border: 1px solid var(--border) !important; }
+    .btn-confirm { background: #e3a008; color: #000; }
+  </style>
+</head>
+<body>
+
+  <!-- DIALOG CONFERMA RISTAMPA -->
+  <div class="dialog-overlay" id="dialog-overlay">
+    <div class="dialog">
+      <div class="dialog-icon">⚠️</div>
+      <h2>Etichetta già stampata</h2>
+      <p id="dialog-msg">Questa etichetta è già stata stampata. Vuoi procedere con la ristampa?</p>
+      <div class="dialog-actions">
+        <button class="btn-cancel" onclick="closeDialog()">Annulla</button>
+        <button class="btn-confirm" onclick="confirmReprint()">Ristampa</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <img src="logo_web.png" alt="Gruppo Sim Tel">
+    <div class="topbar-title">
+      <strong>Refurb Label System</strong>
+      Stampa etichette gateway
+    </div>
+    <a href="/report.html" class="btn-report">📊 Report</a>
+  </div>
+
+  <!-- MAIN -->
+  <main>
+    <div class="page-title">
+      <h1>Verifica &amp; <span>Stampa</span></h1>
+      <p>Inserisci il seriale, verifica il collaudo e poi stampa l'etichetta</p>
+    </div>
+
+    <div class="card">
+      <label class="field-label" for="sn-input">Seriale gateway</label>
+      <div class="input-wrap">
+        <div class="prefix">8000</div>
+        <input type="text"
+               id="sn-input"
+               maxlength="4"
+               placeholder="XXXX"
+               autocomplete="off"
+               inputmode="numeric"
+               autofocus>
+      </div>
+      <p class="hint">// ultime 4 cifre del seriale (es. 1234 → 80001234)</p>
+
+      <button class="btn-verify" id="verify-btn" onclick="submitVerify()">
+        <div class="spinner"></div>
+        <span class="btn-text">🔍&nbsp; Verifica Seriale</span>
+      </button>
+
+      <!-- Bottone stampa etichetta — visibile solo dopo verifica -->
+      <button class="btn-print" id="print-btn" onclick="submitPrint()" style="display:none">
+        <div class="spinner"></div>
+        <span class="btn-text">🖨&nbsp; Stampa Etichetta</span>
+      </button>
+
+      <!-- Bottoni visibili solo dopo verifica OK -->
+      <div class="btn-actions" id="btn-actions">
+        <button class="btn-action green" id="collaudo-btn" onclick="submitCollaudo()">
+          🖨&nbsp; Stampa Foglio Collaudo A4
+        </button>
+        <button class="btn-action blue" id="pdf-btn" onclick="downloadPdf()">
+          ⬇&nbsp; Scarica PDF Collaudo
+        </button>
+      </div>
+
+      <div class="result" id="result-box">
+        <div class="result-header" id="result-header"></div>
+        <div class="result-body">
+          <p class="msg" id="result-message"></p>
+
+          <!-- Anteprima etichetta (solo su OK) -->
+          <div class="label-preview" id="label-preview">
+            <div class="lbl-head">Sim Tel Refurb</div>
+            <div class="lbl-row"><span class="k">S/N Ext:</span><span id="lbl-extsn"></span></div>
+            <div class="lbl-row"><span class="k">SN:</span><span id="lbl-sn"></span></div>
+            <div class="lbl-row"><span class="k">ICCID:</span><span id="lbl-iccid"></span></div>
+          </div>
+
+          <!-- Dettaglio record DB -->
+          <table class="data-table" id="data-table" style="display:none">
+            <tr><td>SN</td>        <td id="dt-sn"></td></tr>
+            <tr><td>Ext SN</td>    <td id="dt-extsn"></td></tr>
+            <tr><td>ICCID</td>     <td id="dt-iccid"></td></tr>
+            <tr><td>Esito</td>     <td id="dt-esito"></td></tr>
+            <tr><td>Tipo</td>      <td id="dt-tipo"></td></tr>
+            <tr><td>Data test</td> <td id="dt-data"></td></tr>
+            <tr><td>Etichetta</td> <td id="dt-stampa"></td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="statusbar">
+      <span class="dot"></span>
+      ONLINE &nbsp;·&nbsp; ZEBRA 10.2.0.6 &nbsp;·&nbsp; DB device_db@matteigiacomo.info
+    </div>
+    <div class="credits">
+      <span class="by">Sviluppato da Giacomo Mattei</span>
+      <span style="color:var(--text3)">con il contributo di</span>
+      <span class="claude">Claude — Anthropic</span>
+    </div>
+  </footer>
+
+  <script>
+    const input      = document.getElementById('sn-input');
+    const verifyBtn  = document.getElementById('verify-btn');
+    const printBtn   = document.getElementById('print-btn');
+    const btnActions = document.getElementById('btn-actions');
+    const btnC       = document.getElementById('collaudo-btn');
+    const btnPdf     = document.getElementById('pdf-btn');
+    const box        = document.getElementById('result-box');
+    const hdr        = document.getElementById('result-header');
+    const msg        = document.getElementById('result-message');
+    const prev       = document.getElementById('label-preview');
+    const dtable     = document.getElementById('data-table');
+
+    let currentExtSn  = null;   // seriale correntemente verificato
+    let pendingExtSn  = null;   // in attesa di conferma ristampa
+    let lastVerifiedSn = null;  // per bottoni collaudo/pdf
+
+    input.addEventListener('input', () => {
+      input.value = input.value.replace(/\D/g, '').slice(0, 4);
+      // Se si modifica il seriale dopo una verifica, reset UI
+      if (currentExtSn && input.value !== currentExtSn.slice(4)) {
+        resetAfterInput();
+      }
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitVerify();
+    });
+
+    function resetAfterInput() {
+      printBtn.style.display = 'none';
+      btnActions.classList.remove('visible');
+      box.style.display = 'none';
+      currentExtSn = null;
+      lastVerifiedSn = null;
+    }
+
+    function setVerifyLoading(on) {
+      verifyBtn.disabled = on;
+      verifyBtn.classList.toggle('loading', on);
+    }
+
+    function setPrintLoading(on) {
+      printBtn.disabled = on;
+      printBtn.classList.toggle('loading', on);
+    }
+
+    // Aggiorna la riga "Etichetta" nel pannello riepilogo
+    function updateStampaRow(dataStampa) {
+      const cell = document.getElementById('dt-stampa');
+      if (dataStampa) {
+        const data = new Date(dataStampa).toLocaleString('it-IT');
+        cell.innerHTML = `<span class="badge-stampata">✓ Già stampata — ${data}</span>`;
+      } else {
+        cell.innerHTML = `<span class="badge-non-stampata">✕ Non ancora stampata</span>`;
+      }
+    }
+
+    function showResult(type, icon, title, message, data) {
+      box.style.display = 'block';
+      box.className = `result ${type}`;
+      hdr.innerHTML = `${icon} ${title}`;
+      msg.textContent = message;
+
+      if (data) {
+        document.getElementById('dt-sn').textContent    = data.sn         || '—';
+        document.getElementById('dt-extsn').textContent = data.ext_sn     || '—';
+        document.getElementById('dt-iccid').textContent = data.iccid      || '—';
+        document.getElementById('dt-esito').textContent = data.esito_test || '—';
+        document.getElementById('dt-tipo').textContent  = data.sgw_type   || '—';
+        document.getElementById('dt-data').textContent  = data.data
+          ? new Date(data.data).toLocaleString('it-IT') : '—';
+        updateStampaRow(data.data_stampa);
+        dtable.style.display = 'table';
+
+        if (type === 'ok' || type === 'warn') {
+          document.getElementById('lbl-extsn').textContent = data.ext_sn || '';
+          document.getElementById('lbl-sn').textContent    = data.sn     || '';
+          document.getElementById('lbl-iccid').textContent = data.iccid  || '';
+          prev.style.display = 'block';
+          lastVerifiedSn = data.ext_sn || null;
+          btnActions.classList.add('visible');
+          btnC.disabled = false;
+          btnC.textContent = '🖨\u00a0 Stampa Foglio Collaudo A4';
+          btnPdf.disabled = false;
+          btnPdf.textContent = '⬇\u00a0 Scarica PDF Collaudo';
+        } else {
+          // NOK: mostra anteprima ma disabilita i bottoni azione
+          prev.style.display = 'none';
+          lastVerifiedSn = data.ext_sn || null;
+          btnActions.classList.add('visible');
+          btnC.disabled = true;
+          btnPdf.disabled = true;
+        }
+      } else {
+        dtable.style.display = 'none';
+        prev.style.display   = 'none';
+        btnActions.classList.remove('visible');
+        lastVerifiedSn = null;
+      }
+    }
+
+    // ── STEP 1: VERIFICA ────────────────────────────────────────────────────────
+    async function submitVerify() {
+      const suffix = input.value.trim();
+      if (suffix.length !== 4) {
+        input.focus();
+        input.style.outline = '2px solid var(--nok)';
+        setTimeout(() => input.style.outline = '', 800);
+        return;
+      }
+
+      const ext_sn = '8000' + suffix;
+      setVerifyLoading(true);
+      box.style.display = 'none';
+      printBtn.style.display = 'none';
+      btnActions.classList.remove('visible');
+      currentExtSn = null;
+
+      try {
+        const res  = await fetch('/api/verify', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ ext_sn }),
+        });
+        const json = await res.json();
+
+        if (res.status === 404) {
+          showResult('nok', '✕', 'SERIALE NON TROVATO', json.error, null);
+          return;
+        }
+
+        if (!json.ok) {
+          showResult('nok', '⚠', 'ERRORE', json.error, null);
+          return;
+        }
+
+        const data = json.data;
+        currentExtSn = ext_sn;
+
+        if (data.esito_test === 'OK') {
+          showResult('ok', '✓', 'VERIFICA OK',
+            `Gateway ${ext_sn} trovato e collaudo superato.`, data);
+          // Mostra il pulsante stampa etichetta
+          printBtn.style.display = 'flex';
+          printBtn.disabled = false;
+          printBtn.classList.remove('loading');
+          printBtn.querySelector('.btn-text').textContent = '🖨\u00a0 Stampa Etichetta';
+        } else {
+          showResult('nok', '✕', 'TEST NON SUPERATO',
+            `Il collaudo per ${ext_sn} non è andato a buon fine (${data.esito_test}).`, data);
+          // Pulsante stampa etichetta nascosto per test NOK
+          printBtn.style.display = 'none';
+        }
+
+      } catch (err) {
+        showResult('nok', '✕', 'ERRORE DI RETE',
+          'Impossibile contattare il server. Verifica la connessione.', null);
+      } finally {
+        setVerifyLoading(false);
+        input.focus();
+      }
+    }
+
+    // ── STEP 2: STAMPA ETICHETTA ────────────────────────────────────────────────
+    async function callPrintApi(ext_sn, force = false) {
+      const res  = await fetch('/api/print', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ ext_sn, force }),
+      });
+      return { res, json: await res.json() };
+    }
+
+    async function submitPrint() {
+      if (!currentExtSn) return;
+      setPrintLoading(true);
+
+      try {
+        const { res, json } = await callPrintApi(currentExtSn, false);
+
+        if (json.ok) {
+          // Successo: aggiorna badge e blocca il pulsante
+          updateStampaRow(new Date().toISOString());
+          printBtn.disabled = true;
+          printBtn.classList.remove('loading');
+          printBtn.querySelector('.btn-text').textContent = '✓\u00a0 Etichetta Stampata';
+          // Aggiorna il messaggio nel pannello
+          hdr.innerHTML = `✓ ${json.reprint ? 'RISTAMPA EFFETTUATA' : 'ETICHETTA STAMPATA'}`;
+          msg.textContent = `Stampa inviata alla Zebra per il gateway ${currentExtSn}.`;
+
+        } else if (json.already_printed) {
+          // Dialog conferma ristampa
+          pendingExtSn = currentExtSn;
+          const dataStampa = json.data_stampa
+            ? new Date(json.data_stampa).toLocaleString('it-IT') : '—';
+          document.getElementById('dialog-msg').innerHTML =
+            `L'etichetta per <strong>${currentExtSn}</strong> è già stata stampata il <strong>${dataStampa}</strong>.<br>Vuoi procedere con la ristampa?`;
+          document.getElementById('dialog-overlay').classList.add('open');
+          setPrintLoading(false);
+
+        } else {
+          showResult('nok', '⚠', 'ERRORE STAMPA', json.error, json.data || null);
+        }
+      } catch (err) {
+        showResult('nok', '✕', 'ERRORE DI RETE',
+          'Impossibile contattare il server. Verifica la connessione.', null);
+      } finally {
+        // Il loading viene tolto solo se non siamo nel caso already_printed
+        if (!pendingExtSn) setPrintLoading(false);
+      }
+    }
+
+    // Conferma ristampa dal dialog
+    async function confirmReprint() {
+      if (!pendingExtSn) return;
+      const ext_sn = pendingExtSn;
+      closeDialog();
+      setPrintLoading(true);
+
+      try {
+        const { res, json } = await callPrintApi(ext_sn, true);
+
+        if (json.ok) {
+          updateStampaRow(new Date().toISOString());
+          printBtn.disabled = true;
+          printBtn.classList.remove('loading');
+          printBtn.querySelector('.btn-text').textContent = '✓\u00a0 Etichetta Stampata';
+          hdr.innerHTML = `✓ RISTAMPA EFFETTUATA`;
+          msg.textContent = `Ristampa inviata alla Zebra per il gateway ${ext_sn}.`;
+        } else {
+          showResult('nok', '⚠', 'ERRORE RISTAMPA', json.error, json.data || null);
+        }
+      } catch (err) {
+        showResult('nok', '✕', 'ERRORE DI RETE',
+          'Impossibile contattare il server. Verifica la connessione.', null);
+      } finally {
+        setPrintLoading(false);
+        input.focus();
+      }
+    }
+
+    function closeDialog() {
+      document.getElementById('dialog-overlay').classList.remove('open');
+      pendingExtSn = null;
+    }
+
+    // ── COLLAUDO A4 ────────────────────────────────────────────────────────────
+    async function submitCollaudo() {
+      if (!lastVerifiedSn) return;
+      btnC.disabled    = true;
+      btnC.textContent = '⏳ Invio in corso…';
+      try {
+        const res  = await fetch('/api/print-collaudo', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ ext_sn: lastVerifiedSn }),
+        });
+        const json = await res.json();
+        if (json.ok) {
+          btnC.textContent = '✓ Inviato alla stampante';
+        } else {
+          btnC.disabled    = false;
+          btnC.textContent = '🖨\u00a0 Stampa Foglio Collaudo A4';
+          alert('Errore stampa collaudo:\n' + json.error);
+        }
+      } catch (err) {
+        btnC.disabled    = false;
+        btnC.textContent = '🖨\u00a0 Stampa Foglio Collaudo A4';
+        alert('Errore di rete durante la stampa del foglio collaudo.');
+      }
+    }
+
+    // ── PDF ────────────────────────────────────────────────────────────────────
+    function downloadPdf() {
+      if (!lastVerifiedSn) return;
+      btnPdf.disabled    = true;
+      btnPdf.textContent = '⏳ Generazione PDF…';
+      const url = `/api/pdf-collaudo/${lastVerifiedSn}`;
+      const a   = document.createElement('a');
+      a.href     = url;
+      a.download = `collaudo_${lastVerifiedSn}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => {
+        btnPdf.disabled    = false;
+        btnPdf.textContent = '⬇\u00a0 Scarica PDF Collaudo';
+      }, 3000);
+    }
+
+    // Chiudi dialog con ESC
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeDialog();
+    });
+  </script>
+</body>
+</html>

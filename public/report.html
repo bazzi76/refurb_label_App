@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gruppo Sim Tel — Report ICCID</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0d1117;
+      --bg2:        #161b22;
+      --bg3:        #1c2128;
+      --border:     #30363d;
+      --border2:    #21262d;
+      --accent:     #2ea8e0;
+      --ok:         #3fb950;
+      --ok-dim:     rgba(63,185,80,0.1);
+      --nok:        #f85149;
+      --nok-dim:    rgba(248,81,73,0.1);
+      --warn:       #e3a008;
+      --text:       #e6edf3;
+      --text2:      #8b949e;
+      --text3:      #484f58;
+      --mono:       'JetBrains Mono', monospace;
+      --sans:       'Inter', sans-serif;
+      --radius:     8px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── TOPBAR ── */
+    .topbar {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .topbar img { height: 38px; width: auto; }
+    .topbar-title {
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--text2);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      text-align: center;
+      flex: 1;
+    }
+    .topbar-title strong {
+      display: block;
+      color: var(--accent);
+      font-size: 0.9rem;
+      letter-spacing: 0.02em;
+    }
+    .btn-back {
+      padding: 8px 18px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text2);
+      font-family: var(--sans);
+      font-size: 0.82rem;
+      font-weight: 600;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .btn-back:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── MAIN ── */
+    main {
+      flex: 1;
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .page-title h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .page-title h1 span { color: var(--accent); }
+    .page-title p {
+      font-size: 0.82rem;
+      color: var(--text2);
+      margin-top: 4px;
+    }
+
+    /* ── INPUT AREA ── */
+    .input-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+    }
+    .input-card label {
+      display: block;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text2);
+      margin-bottom: 10px;
+    }
+    textarea {
+      width: 100%;
+      height: 160px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      line-height: 1.7;
+      padding: 12px 14px;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(46,168,224,0.12);
+    }
+    textarea::placeholder { color: var(--text3); }
+
+    .input-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 12px;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .input-hint {
+      font-family: var(--mono);
+      font-size: 0.67rem;
+      color: var(--text3);
+    }
+    .btn-primary {
+      padding: 10px 24px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-family: var(--sans);
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    .btn-primary:hover { background: #3dbcf7; box-shadow: 0 4px 16px rgba(46,168,224,0.25); }
+    .btn-primary:disabled { background: var(--bg3); color: var(--text3); border: 1px solid var(--border); cursor: not-allowed; box-shadow: none; }
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    .btn-primary.loading .spinner { display: block; }
+    .btn-primary.loading .btn-text { opacity: 0.6; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── RISULTATI ── */
+    .results-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: none;
+      animation: fadeUp 0.25s ease;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .results-header {
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .results-header h2 {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .results-header .stats {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text2);
+      display: flex;
+      gap: 16px;
+    }
+    .stats .ok-stat  { color: var(--ok); }
+    .stats .nok-stat { color: var(--nok); }
+
+    /* Download buttons */
+    .download-btns {
+      display: flex;
+      gap: 8px;
+    }
+    .btn-dl {
+      padding: 7px 14px;
+      border-radius: 5px;
+      font-family: var(--sans);
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--bg3);
+      color: var(--text2);
+      transition: border-color 0.15s, color 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .btn-dl:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Tabella */
+    .table-wrap {
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+    thead th {
+      background: var(--bg3);
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text2);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody tr {
+      border-bottom: 1px solid var(--border2);
+      transition: background 0.1s;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--bg3); }
+    tbody td {
+      padding: 10px 14px;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      vertical-align: middle;
+    }
+    tbody td.not-found {
+      color: var(--text3);
+      font-style: italic;
+      font-family: var(--sans);
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .badge-ok   { background: var(--ok-dim);  color: var(--ok); }
+    .badge-nok  { background: var(--nok-dim); color: var(--nok); }
+    .badge-none { background: var(--bg3); color: var(--text3); }
+
+    /* ── FOOTER ── */
+    footer {
+      text-align: center;
+      padding: 20px;
+      border-top: 1px solid var(--border2);
+      font-size: 0.72rem;
+      color: var(--text3);
+      line-height: 1.7;
+    }
+    .credits {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .credits .by { color: var(--text2); font-weight: 500; }
+    .credits .claude {
+      color: var(--accent);
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .credits .claude::before { content: '✦'; font-size: 0.6rem; }
+  </style>
+</head>
+<body>
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <img src="logo_web.png" alt="Gruppo Sim Tel">
+    <div class="topbar-title">
+      <strong>Refurb Label System</strong>
+      Report ICCID
+    </div>
+    <a href="/" class="btn-back">← Stampa</a>
+  </div>
+
+  <!-- MAIN -->
+  <main>
+    <div class="page-title">
+      <h1>Report <span>ICCID</span></h1>
+      <p>Incolla una lista di ICCID (uno per riga) per ottenere l'associazione con SN, seriale esterno e tipo gateway</p>
+    </div>
+
+    <!-- Input -->
+    <div class="input-card">
+      <label for="iccid-input">Lista ICCID</label>
+      <textarea id="iccid-input"
+                placeholder="89390100002355529656&#10;89390100002355529657&#10;89390100002355529658&#10;..."></textarea>
+      <div class="input-actions">
+        <span class="input-hint">// uno per riga, spazi e righe vuote ignorati</span>
+        <button class="btn-primary" id="search-btn" onclick="runReport()">
+          <div class="spinner"></div>
+          <span class="btn-text">🔍 Genera Report</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Risultati -->
+    <div class="results-card" id="results-card">
+      <div class="results-header">
+        <div>
+          <h2>Risultati</h2>
+          <div class="stats">
+            <span>Totale: <strong id="stat-total">0</strong></span>
+            <span class="ok-stat">Trovati: <strong id="stat-found">0</strong></span>
+            <span class="nok-stat">Non trovati: <strong id="stat-missing">0</strong></span>
+          </div>
+        </div>
+        <div class="download-btns">
+          <button class="btn-dl" onclick="download('csv')">⬇ CSV</button>
+          <button class="btn-dl" onclick="download('txt')">⬇ TXT</button>
+          <button class="btn-dl" onclick="download('xls')" style="border-color: rgba(63,185,80,0.4); color: var(--ok);">⬇ XLS</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>ICCID</th>
+              <th>SN (MAC)</th>
+              <th>Ext SN</th>
+              <th>Tipo</th>
+              <th>Esito test</th>
+              <th>Data test</th>
+              <th>Data stampa</th>
+            </tr>
+          </thead>
+          <tbody id="result-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="credits">
+      <span class="by">Sviluppato da Giacomo Mattei</span>
+      <span style="color:#484f58">con il contributo di</span>
+      <span class="claude">Claude — Anthropic</span>
+    </div>
+  </footer>
+
+  <script>
+    let reportData = [];
+
+    const searchBtn = document.getElementById('search-btn');
+
+    function setLoading(on) {
+      searchBtn.disabled = on;
+      searchBtn.classList.toggle('loading', on);
+    }
+
+    function fmtDate(iso) {
+      if (!iso) return '—';
+      return new Date(iso).toLocaleString('it-IT');
+    }
+
+    function esitoBadge(esito) {
+      if (!esito) return '<span class="badge badge-none">—</span>';
+      if (esito === 'OK') return '<span class="badge badge-ok">OK</span>';
+      return `<span class="badge badge-nok" title="${esito}">NOK</span>`;
+    }
+
+    async function runReport() {
+      const raw = document.getElementById('iccid-input').value;
+      const iccids = raw.split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 0);
+
+      if (iccids.length === 0) {
+        document.getElementById('iccid-input').focus();
+        return;
+      }
+
+      setLoading(true);
+      document.getElementById('results-card').style.display = 'none';
+
+      try {
+        const res  = await fetch('/api/report', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ iccids }),
+        });
+        const json = await res.json();
+
+        if (!json.ok) {
+          alert('Errore: ' + json.error);
+          return;
+        }
+
+        reportData = json.rows;
+        renderTable(json);
+
+      } catch (err) {
+        alert('Errore di rete: ' + err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function renderTable(json) {
+      const missing = json.total - json.found;
+      document.getElementById('stat-total').textContent   = json.total;
+      document.getElementById('stat-found').textContent   = json.found;
+      document.getElementById('stat-missing').textContent = missing;
+
+      const tbody = document.getElementById('result-tbody');
+      tbody.innerHTML = '';
+
+      json.rows.forEach((row, i) => {
+        const tr = document.createElement('tr');
+        if (row.found) {
+          tr.innerHTML = `
+            <td style="color:var(--text3)">${i + 1}</td>
+            <td>${row.iccid}</td>
+            <td>${row.sn || '—'}</td>
+            <td>${row.ext_sn || '—'}</td>
+            <td>${row.sgw_type || '—'}</td>
+            <td>${esitoBadge(row.esito_test)}</td>
+            <td>${fmtDate(row.data)}</td>
+            <td>${fmtDate(row.data_stampa)}</td>`;
+        } else {
+          tr.innerHTML = `
+            <td style="color:var(--text3)">${i + 1}</td>
+            <td>${row.iccid}</td>
+            <td class="not-found" colspan="6">— non trovato nel database —</td>`;
+        }
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('results-card').style.display = 'block';
+    }
+
+    function download(format) {
+      if (reportData.length === 0) return;
+
+      let content, filename, mime;
+
+      if (format === 'xls') {
+        // ── XLSX via SheetJS ──────────────────────────────────────────────────
+        const headers = ['ICCID', 'SN (MAC)', 'Ext SN', 'Tipo', 'Esito Test', 'Data Test', 'Data Stampa'];
+        const rows = reportData.map(r => r.found
+          ? [r.iccid, r.sn||'', r.ext_sn||'', r.sgw_type||'', r.esito_test||'',
+             r.data       ? new Date(r.data)       : '',
+             r.data_stampa ? new Date(r.data_stampa) : '']
+          : [r.iccid, 'NON TROVATO', '', '', '', '', '']
+        );
+
+        const wb  = XLSX.utils.book_new();
+        const ws  = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+
+        // Larghezze colonne
+        ws['!cols'] = [
+          { wch: 24 }, // ICCID
+          { wch: 20 }, // SN
+          { wch: 12 }, // Ext SN
+          { wch: 14 }, // Tipo
+          { wch: 12 }, // Esito
+          { wch: 22 }, // Data Test
+          { wch: 22 }, // Data Stampa
+        ];
+
+        // Stile intestazione (grassetto + sfondo)
+        const headerRange = XLSX.utils.decode_range(ws['!ref']);
+        for (let c = headerRange.s.c; c <= headerRange.e.c; c++) {
+          const cell = ws[XLSX.utils.encode_cell({ r: 0, c })];
+          if (cell) {
+            cell.s = {
+              font:      { bold: true, color: { rgb: 'FFFFFF' } },
+              fill:      { fgColor: { rgb: '1C2128' } },
+              alignment: { horizontal: 'center' },
+            };
+          }
+        }
+
+        // Formato date per colonne 5 e 6 (indice 0-based)
+        for (let r = 1; r <= rows.length; r++) {
+          for (const c of [5, 6]) {
+            const addr = XLSX.utils.encode_cell({ r, c });
+            if (ws[addr] && ws[addr].v instanceof Date) {
+              ws[addr].t = 'd';
+              ws[addr].z = 'DD/MM/YYYY HH:MM';
+            }
+          }
+        }
+
+        XLSX.utils.book_append_sheet(wb, ws, 'Report ICCID');
+        XLSX.writeFile(wb, `report_iccid_${today()}.xlsx`);
+        return;
+      }
+
+      if (format === 'csv') {
+        const header = 'ICCID,SN,Ext_SN,Tipo,Esito_Test,Data_Test,Data_Stampa';
+        const lines  = reportData.map(r => r.found
+          ? [r.iccid, r.sn||'', r.ext_sn||'', r.sgw_type||'', r.esito_test||'',
+             fmtDate(r.data), fmtDate(r.data_stampa)].join(',')
+          : [r.iccid, 'NON TROVATO','','','','',''].join(',')
+        );
+        content  = [header, ...lines].join('\r\n');
+        filename = `report_iccid_${today()}.csv`;
+        mime     = 'text/csv';
+
+      } else {
+        // TXT — colonne allineate
+        const COL = [22, 18, 10, 10, 8, 20, 20];
+        const pad  = (s, n) => String(s||'').padEnd(n);
+        const header = pad('ICCID',22) + pad('SN',18) + pad('Ext_SN',10) +
+                       pad('Tipo',10) + pad('Esito',8) + pad('Data_Test',20) + 'Data_Stampa';
+        const sep    = '-'.repeat(108);
+        const lines  = reportData.map(r => r.found
+          ? pad(r.iccid,22) + pad(r.sn,18) + pad(r.ext_sn,10) +
+            pad(r.sgw_type,10) + pad(r.esito_test,8) +
+            pad(fmtDate(r.data),20) + fmtDate(r.data_stampa)
+          : pad(r.iccid,22) + 'NON TROVATO'
+        );
+        content  = [header, sep, ...lines].join('\r\n');
+        filename = `report_iccid_${today()}.txt`;
+        mime     = 'text/plain';
+      }
+
+      const blob = new Blob([content], { type: mime });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function today() {
+      return new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    }
+
+    // Ctrl+Enter per lanciare il report
+    document.getElementById('iccid-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.ctrlKey) runReport();
+    });
+  </script>
+</body>
+</html>
