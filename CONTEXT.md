@@ -39,7 +39,8 @@ refurb_label_App/
 ├── public/
 │   ├── index.html         (920 righe)  — UI principale: verifica SN/FR + stampa etichetta/collaudo
 │   ├── report.html        (602 righe)  — report ICCID con export CSV/TXT/XLS
-│   ├── outbox.html        (956 righe)  — box management: crea/consulta/rientro/dashboard
+│   ├── outbox.html        (956 righe)  — box management: crea/consulta/rientro/dashboard/deposito
+│   ├── fr-label.html      (160 righe)  — terminale stampa etichetta FR (QR+codice)
 │   ├── logo_web.png
 │   └── vari *.old / *.bak_* — backup storici (gitignored)
 ├── RemoteScript/
@@ -66,6 +67,7 @@ refurb_label_App/
 |----------|--------|----------|
 | `/api/verify` | POST | Verifica gateway per **ext_sn (8000XXXX) o FR (FRXXXXX)**; restituisce anche `box` (assegnazione FR o null = deposito) |
 | `/api/print` | POST | Stampa etichetta ZPL su Zebra (3 copie) |
+| `/api/print-fr` | POST | Stampa N etichette FR (QR del codice FR + testo); nessun DB |
 | `/api/print-collaudo` | POST | Stampa foglio collaudo A4 via CUPS |
 | `/api/pdf-collaudo/:ext_sn` | GET | Genera e scarica PDF collaudo |
 | `/api/report` | POST | Bulk lookup ICCID |
@@ -128,6 +130,11 @@ refurb_label_App/
 - **Link verifica da Box Management**:
   - Crea Box: chip cliccabili dei FR inseriti (preview live) → aprono pagina Stampa con auto-verifica
   - Consulta Box: codici FR nella tabella cliccabili → pagina Stampa
+- **Stampa etichetta FR (pagina dedicata)**:
+  - Nuova pagina `/fr-label.html` (integrazione di zebra-print-app): input FR (5 cifre o FR+5), copie default 2, autofocus, stampa su Zebra (QR del codice FR + testo, ZPL con `~SD25`/`^PR2`/`^PQ`).
+  - `POST /api/print-fr` valida/formatta l'FR e stampa N copie. **Nessun inserimento DB**: l'FR viene registrato in `device_tests` al momento del collaudo (`gateway_test_V2.0.sh`).
+  - Link "Etichetta FR" in topbar di Stampa, Box e Report.
+
 - **Promote a uscita_cliente (sposta FR in blocco)**:
   - `POST /api/outbox/:box_serial/promote`: da una box `uscita_terzista` con FR rientrati, crea una nuova box `uscita_cliente` e sposta in blocco tutti gli FR rientrati (seriale auto o fornito). La box terzista resta vuota come storico.
   - Frontend Consulta Box: sezione "Spedisci al cliente" per box uscita_terzista con FR rientrati. Il flusso manuale di creazione/scansione FR resta invariato.
