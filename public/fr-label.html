@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gruppo Sim Tel — Etichetta FR</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#0d1117; --bg2:#161b22; --bg3:#1c2128; --border:#30363d; --border2:#21262d;
+      --accent:#2ea8e0; --ok:#3fb950; --ok-dim:rgba(63,185,80,0.12); --nok:#f85149; --nok-dim:rgba(248,81,73,0.12);
+      --warn:#e3a008; --warn-dim:rgba(227,160,8,0.12);
+      --text:#e6edf3; --text2:#8b949e; --text3:#484f58;
+      --mono:'JetBrains Mono',monospace; --sans:'Inter',sans-serif; --radius:8px;
+    }
+    body { background:var(--bg); color:var(--text); font-family:var(--sans); min-height:100vh; display:flex; flex-direction:column; }
+    .topbar { background:var(--bg2); border-bottom:1px solid var(--border); padding:14px 32px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    .topbar img { height:38px; width:auto; }
+    .topbar-title { font-size:0.78rem; font-weight:500; color:var(--text2); letter-spacing:0.05em; text-transform:uppercase; text-align:center; flex:1; }
+    .topbar-title strong { display:block; color:var(--accent); font-size:0.9rem; letter-spacing:0.02em; }
+    .nav-links { display:flex; gap:8px; }
+    .btn-nav { padding:8px 18px; background:transparent; border:1px solid var(--border); border-radius:6px; color:var(--text2); font-family:var(--sans); font-size:0.82rem; font-weight:600; text-decoration:none; white-space:nowrap; transition:border-color 0.15s,color 0.15s; }
+    .btn-nav:hover { border-color:var(--accent); color:var(--accent); }
+    main { flex:1; max-width:560px; width:100%; margin:0 auto; padding:2.5rem 1.5rem; display:flex; flex-direction:column; gap:1.5rem; }
+    .page-title h1 { font-size:1.5rem; font-weight:700; letter-spacing:-0.02em; }
+    .page-title h1 span { color:var(--accent); }
+    .page-title p { font-size:0.85rem; color:var(--text2); margin-top:4px; }
+    .card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:1.75rem; }
+    .field-label { display:block; font-size:0.72rem; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--text2); margin-bottom:8px; }
+    .fr-input-wrap { display:flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:var(--bg); transition:border-color 0.15s,box-shadow 0.15s; }
+    .fr-input-wrap:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px rgba(46,168,224,0.15); }
+    .fr-prefix { padding:0 18px; display:flex; align-items:center; font-family:var(--mono); font-size:1.6rem; font-weight:600; color:var(--accent); background:var(--bg3); border-right:1px solid var(--border); flex-shrink:0; letter-spacing:0.05em; }
+    .fr-input-wrap input { background:transparent; border:none; outline:none; color:var(--text); font-family:var(--mono); font-size:1.8rem; font-weight:500; letter-spacing:0.15em; padding:16px 18px; width:100%; }
+    .fr-input-wrap input::placeholder { color:var(--text3); letter-spacing:0.05em; font-size:1.1rem; }
+    .hint { font-family:var(--mono); font-size:0.67rem; color:var(--text3); margin-top:8px; }
+    .copies-row { display:flex; align-items:center; gap:10px; margin-top:1.25rem; }
+    .copies-row label { font-size:0.72rem; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--text2); }
+    .copies-row input { width:72px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:1rem; padding:8px 10px; text-align:center; outline:none; }
+    .copies-row input:focus { border-color:var(--accent); }
+    .btn-primary { margin-top:1.5rem; width:100%; padding:16px; background:var(--accent); color:#fff; border:none; border-radius:6px; font-family:var(--sans); font-size:1rem; font-weight:600; letter-spacing:0.04em; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; transition:background 0.15s,transform 0.1s,box-shadow 0.15s; }
+    .btn-primary:hover { background:#3dbcf7; box-shadow:0 4px 16px rgba(46,168,224,0.3); }
+    .btn-primary:active { transform:scale(0.99); }
+    .btn-primary:disabled { background:var(--bg3); color:var(--text3); border:1px solid var(--border); cursor:not-allowed; box-shadow:none; transform:none; }
+    .btn-primary.loading .spinner { display:block; }
+    .btn-primary.loading .btn-text { opacity:0.6; }
+    .spinner { width:16px; height:16px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:spin 0.7s linear infinite; display:none; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .result { margin-top:1.25rem; border-radius:6px; overflow:hidden; display:none; animation:fadeUp 0.25s ease; }
+    @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+    .result-header { padding:12px 16px; font-size:0.82rem; font-weight:600; letter-spacing:0.06em; }
+    .result.ok .result-header { background:var(--ok-dim); color:var(--ok); border:1px solid rgba(63,185,80,0.25); border-radius:6px; }
+    .result.nok .result-header { background:var(--nok-dim); color:var(--nok); border:1px solid rgba(248,81,73,0.25); border-radius:6px; }
+    .result-body { background:var(--bg); border:1px solid var(--border); border-top:none; border-radius:0 0 6px 6px; padding:1rem 1.25rem; font-size:0.85rem; color:var(--text2); }
+    .last-print { margin-top:1rem; padding:0.75rem 1rem; background:var(--bg3); border:1px solid var(--border2); border-radius:6px; font-family:var(--mono); font-size:0.78rem; color:var(--text2); display:none; }
+    .last-print strong { color:var(--accent); }
+    footer { text-align:center; padding:20px; border-top:1px solid var(--border2); font-size:0.72rem; color:var(--text3); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <img src="logo_web.png" alt="Gruppo Sim Tel">
+    <div class="topbar-title"><strong>Refurb Label System</strong>Etichetta FR</div>
+    <div class="nav-links">
+      <a href="/" class="btn-nav">🖨 Stampa</a>
+      <a href="/outbox.html" class="btn-nav">📦 Box</a>
+    </div>
+  </div>
+
+  <main>
+    <div class="page-title">
+      <h1>Etichetta <span>FR</span></h1>
+      <p>Inserisci il codice FR per stampare l'etichetta (QR + codice) sulla Zebra</p>
+    </div>
+
+    <div class="card">
+      <label class="field-label" for="fr-input">Codice FR</label>
+      <div class="fr-input-wrap">
+        <div class="fr-prefix">FR</div>
+        <input type="text" id="fr-input" maxlength="7" placeholder="12345" autocomplete="off" inputmode="numeric" autofocus>
+      </div>
+      <p class="hint">// 5 cifre (es. 12345 → FR12345). Accetta anche FR12345 già completo.</p>
+
+      <div class="copies-row">
+        <label for="copies-input">Copie</label>
+        <input type="text" id="copies-input" value="2" maxlength="2" inputmode="numeric">
+      </div>
+
+      <button class="btn-primary" id="print-btn" onclick="printFr()">
+        <div class="spinner"></div><span class="btn-text">🖨 Stampa etichetta</span>
+      </button>
+
+      <div class="result" id="result">
+        <div class="result-header" id="result-header"></div>
+        <div class="result-body" id="result-body"></div>
+      </div>
+
+      <div class="last-print" id="last-print"></div>
+    </div>
+  </main>
+
+  <footer>
+    <div>Gruppo Sim Tel — Sistema Refurb Gateway · Zebra 10.2.0.6:9100</div>
+  </footer>
+
+  <script>
+    const frInput = document.getElementById('fr-input');
+    const copiesInput = document.getElementById('copies-input');
+    const printBtn = document.getElementById('print-btn');
+    const result = document.getElementById('result');
+    const resultHeader = document.getElementById('result-header');
+    const resultBody = document.getElementById('result-body');
+    const lastPrint = document.getElementById('last-print');
+
+    // Input: cifre (e ignora un eventuale FR digitato mantenendo solo le 5 cifre)
+    frInput.addEventListener('input', () => {
+      let v = frInput.value.toUpperCase().replace(/^FR/, '').replace(/\D/g, '').slice(0, 5);
+      frInput.value = v;
+    });
+    frInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') printFr(); });
+    copiesInput.addEventListener('input', () => { copiesInput.value = copiesInput.value.replace(/\D/g, '').slice(0, 2); if (!copiesInput.value) copiesInput.value = '1'; });
+    copiesInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') printFr(); });
+
+    function setLoading(on) { printBtn.disabled = on; printBtn.classList.toggle('loading', on); }
+    function showResult(type, title, msg) {
+      result.style.display = 'block'; result.className = `result ${type}`;
+      resultHeader.textContent = title; resultBody.innerHTML = msg;
+    }
+
+    async function printFr() {
+      const raw = frInput.value.trim();
+      if (raw.length === 0) { frInput.focus(); frInput.style.outline='2px solid var(--nok)'; setTimeout(()=>frInput.style.outline='',800); return; }
+      // il frontend invia solo le 5 cifre; il backend prefissa FR
+      const fr = raw.replace(/^FR/, '');
+      const copies = Math.max(1, Math.min(parseInt(copiesInput.value) || 2, 99));
+
+      setLoading(true);
+      result.style.display = 'none';
+      try {
+        const res = await fetch('/api/print-fr', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fr, copies })
+        });
+        const json = await res.json();
+        if (json.ok) {
+          showResult('ok', '✓ STAMPA AVVIATA', `${json.message}<br><br>Codice: <strong style="font-family:var(--mono);color:var(--accent);">${json.fr}</strong> · Copie: ${json.copies}`);
+          lastPrint.innerHTML = `Ultima stampa: <strong>${json.fr}</strong> · ${json.copies} copie · ${new Date().toLocaleString('it-IT')}`;
+          lastPrint.style.display = 'block';
+          frInput.value = ''; frInput.focus();
+        } else {
+          showResult('nok', '✕ ERRORE', json.error);
+        }
+      } catch (err) {
+        showResult('nok', '✕ ERRORE DI RETE', 'Impossibile contattare il server. Verifica la connessione.');
+      } finally { setLoading(false); }
+    }
+  </script>
+</body>
+</html>

@@ -2350,6 +2350,52 @@ app.post('/api/outbox/create-empty', async (req, res) => {
 });
 
 // ------------------------------------------------------------------------------
+// GENERA ZPL ETICHETTA FR (QR del codice FR + testo) — da zebra-print-app
+// ------------------------------------------------------------------------------
+function buildFrLabelZPL(frCode, copies) {
+  const qty = Math.max(1, Math.min(parseInt(copies) || 2, 99));
+  return [
+    '~SD25',
+    '^XA',
+    '^PR2',
+    '^PW600',
+    '^LL300',
+    `^FO40,50^BQN,2,6^FDQA,${frCode}^FS`,
+    `^FO240,120^A0N,55,50^FD${frCode}^FS`,
+    `^PQ${qty}`,
+    '^XZ',
+  ].join('');
+}
+
+// ------------------------------------------------------------------------------
+// API — POST /api/print-fr
+// Body: { fr: "FR12345" o "12345", copies: 2 }
+// Valida, formatta (5 cifre -> FR+5), stampa N etichette FR sulla Zebra.
+// ------------------------------------------------------------------------------
+app.post('/api/print-fr', async (req, res) => {
+  let raw = req.body.fr || req.body.barcode || '';
+  let code = String(raw).trim().toUpperCase();
+  let copies = parseInt(req.body.copies, 10);
+  if (isNaN(copies) || copies < 1) copies = 2;
+  if (copies > 99) copies = 99;
+
+  // Formatta: 5 cifre -> FR + 5 cifre
+  if (/^\d{5}$/.test(code)) code = 'FR' + code;
+  if (!/^FR\d{5}$/.test(code)) {
+    return res.status(400).json({ ok: false, error: 'Codice FR non valido. Formato atteso: FR + 5 cifre (es. FR12345) oppure 5 cifre.' });
+  }
+
+  try {
+    const zpl = buildFrLabelZPL(code, copies);
+    await printLabel(zpl);
+    return res.json({ ok: true, message: `${copies} etichett${copies===1?'a':'e'} FR stampat${copies===1?'a':'e'}.`, fr: code, copies });
+  } catch (err) {
+    console.error('Errore print-fr:', err.message);
+    return res.status(500).json({ ok: false, error: `Errore stampa: ${err.message}` });
+  }
+});
+
+// ------------------------------------------------------------------------------
 // AVVIO
 // ------------------------------------------------------------------------------
 app.listen(PORT, () => {
