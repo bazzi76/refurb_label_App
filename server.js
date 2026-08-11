@@ -478,7 +478,29 @@ app.post('/api/verify', async (req, res) => {
     }
 
     const row = result.rows[0];
-    return res.json({ ok: true, data: row });
+
+    // Box assignment dell'FR (null se in deposito / senza fr)
+    let boxAssignment = null;
+    if (row.fr) {
+      const boxRes = await client.query(
+        `SELECT b.box_serial, b.tipo, b.stato AS box_stato, i.stato AS item_stato
+         FROM outbound_box_items i
+         JOIN outbound_boxes b ON i.box_id = b.id
+         WHERE i.fr = $1
+         ORDER BY i.id DESC LIMIT 1`,
+        [row.fr]
+      );
+      if (boxRes.rows.length > 0) {
+        boxAssignment = {
+          box_serial: boxRes.rows[0].box_serial,
+          tipo: boxRes.rows[0].tipo,
+          box_stato: boxRes.rows[0].box_stato,
+          item_stato: boxRes.rows[0].item_stato,
+        };
+      }
+    }
+
+    return res.json({ ok: true, data: row, box: boxAssignment });
 
   } catch (err) {
     console.error('Errore verify:', err.message);
@@ -1058,6 +1080,62 @@ app.get('/api/outbox/dashboard', async (req, res) => {
 
   } catch (err) {
     console.error('Errore outbox/dashboard:', err.message);
+    return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// ------------------------------------------------------------------------------
+// API — GET /api/deposito
+// Lista FR in deposito (in device_tests con fr, non assegnati ad alcuna box)
+// ------------------------------------------------------------------------------
+app.get('/api/deposito', async (req, res) => {
+  let client;
+  try {
+    client = await DB.connect();
+    const result = await client.query(
+      `SELECT DISTINCT ON (d.fr) d.fr, d.sn, d.ext_sn, d.iccid, d.esito_test, d.data
+       FROM device_tests d
+       WHERE d.fr IS NOT NULL AND d.fr <> ''
+         AND NOT EXISTS (SELECT 1 FROM outbound_box_items i WHERE i.fr = d.fr)
+       ORDER BY d.fr, d.data DESC`
+    );
+    return res.json({ ok: true, count: result.rows.length, rows: result.rows.map(r => ({
+      fr: r.fr, sn: r.sn, ext_sn: r.ext_sn, iccid: r.iccid,
+      esito_test: r.esito_test, data: r.data,
+    })) });
+  } catch (err) {
+    console.error('Errore deposito:', err.message);
+    return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// ------------------------------------------------------------------------------
+// API — GET /api/outbox/assignable-boxes
+// Box in stato 'creato' (non archiviate) con capienza (count < 24)
+// ------------------------------------------------------------------------------
+app.get('/api/outbox/assignable-boxes', async (req, res) => {
+  let client;
+  try {
+    client = await DB.connect();
+    const result = await client.query(
+      `SELECT b.box_serial, b.tipo, COUNT(i.id) AS count
+       FROM outbound_boxes b
+       LEFT JOIN outbound_box_items i ON b.id = i.box_id
+       WHERE b.stato = 'creato' AND b.archived = FALSE
+       GROUP BY b.id, b.box_serial, b.tipo
+       HAVING COUNT(i.id) < 24
+       ORDER BY b.box_serial`
+    );
+    return res.json({ ok: true, rows: result.rows.map(r => ({
+      box_serial: r.box_serial, tipo: r.tipo,
+      count: parseInt(r.count), max: 24,
+    })) });
+  } catch (err) {
+    console.error('Errore assignable-boxes:', err.message);
     return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
   } finally {
     if (client) client.release();
@@ -2103,6 +2181,168 @@ app.patch('/api/outbox/:box_serial/archive', async (req, res) => {
 
   } catch (err) {
     console.error('Errore outbox/archive:', err.message);
+    return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// ------------------------------------------------------------------------------
+// API — POST /api/outbox/assign
+// Assegna/sposta un FR in una box destinazione (stato 'creato', capienza < 24).
+// deposito -> box (inserisce), box -> box (sposta se raccolto/rientrato),
+// blocca se l'FR e 'spedito'. Body: { fr, target_box_serial }
+// ------------------------------------------------------------------------------
+app.post('/api/outbox/assign', async (req, res) => {
+  const { fr, target_box_serial } = req.body;
+  const frNorm = fr ? String(fr).trim().toUpperCase() : null;
+  if (!frNorm || !/^FR\d{5}$/.test(frNorm)) {
+    return res.status(400).json({ ok: false, error: 'FR non valido. Formato atteso: FR + 5 cifre' });
+  }
+  if (!target_box_serial || !/^RBOX-(OUT-)?\d+$/.test(target_box_serial)) {
+    return res.status(400).json({ ok: false, error: 'Seriale box destinazione non valido' });
+  }
+
+  let client;
+  try {
+    client = await DB.connect();
+
+    const tgt = await client.query(
+      'SELECT id, stato, archived FROM outbound_boxes WHERE box_serial = $1',
+      [target_box_serial]
+    );
+    if (tgt.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: `Box ${target_box_serial} non trovata.` });
+    }
+    if (tgt.rows[0].stato !== 'creato') {
+      return res.status(409).json({ ok: false, error: `Box ${target_box_serial} non e in stato 'creato' (attuale: ${tgt.rows[0].stato}).` });
+    }
+    const tgtCount = await client.query(
+      'SELECT COUNT(*) AS c FROM outbound_box_items WHERE box_id = $1',
+      [tgt.rows[0].id]
+    );
+    if (parseInt(tgtCount.rows[0].c) >= 24) {
+      return res.status(409).json({ ok: false, error: `Box ${target_box_serial} piena (24/24).` });
+    }
+
+    const cur = await client.query(
+      `SELECT i.id, i.box_id, i.stato, b.box_serial AS cur_box
+       FROM outbound_box_items i LEFT JOIN outbound_boxes b ON i.box_id = b.id
+       WHERE i.fr = $1 ORDER BY i.id DESC LIMIT 1`,
+      [frNorm]
+    );
+
+    if (cur.rows.length > 0) {
+      const c = cur.rows[0];
+      if (c.box_id === tgt.rows[0].id) {
+        return res.json({ ok: true, message: `FR ${frNorm} gia assegnato a ${target_box_serial}.`, action: 'noop', target_box_serial });
+      }
+      if (c.stato === 'spedito') {
+        return res.status(409).json({ ok: false, error: `FR ${frNorm} e in lavorazione (spedito in ${c.cur_box}). Non spostabile.` });
+      }
+      await client.query(
+        `UPDATE outbound_box_items SET box_id = $1, stato = 'raccolto', data_rientro = NULL WHERE id = $2`,
+        [tgt.rows[0].id, c.id]
+      );
+      return res.json({ ok: true, message: `FR ${frNorm} spostato da ${c.cur_box} a ${target_box_serial}.`, action: 'moved', target_box_serial, from: c.cur_box });
+    }
+
+    await client.query(
+      'INSERT INTO outbound_box_items (box_id, fr) VALUES ($1, $2)',
+      [tgt.rows[0].id, frNorm]
+    );
+    return res.json({ ok: true, message: `FR ${frNorm} assegnato a ${target_box_serial} dal deposito.`, action: 'inserted', target_box_serial });
+
+  } catch (err) {
+    console.error('Errore outbox/assign:', err.message);
+    return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// ------------------------------------------------------------------------------
+// API — POST /api/outbox/assign-new
+// Crea una nuova box (next serial) del tipo dato e ci assegna l'FR. Body: { fr, tipo }
+// ------------------------------------------------------------------------------
+app.post('/api/outbox/assign-new', async (req, res) => {
+  const { fr, tipo } = req.body;
+  const frNorm = fr ? String(fr).trim().toUpperCase() : null;
+  if (!frNorm || !/^FR\d{5}$/.test(frNorm)) {
+    return res.status(400).json({ ok: false, error: 'FR non valido. Formato atteso: FR + 5 cifre' });
+  }
+  const validTypes = ['uscita_terzista', 'rientro_terzista', 'uscita_cliente'];
+  const boxTipo = validTypes.includes(tipo) ? tipo : 'uscita_cliente';
+
+  let client;
+  try {
+    client = await DB.connect();
+
+    const cur = await client.query(
+      `SELECT i.id, i.box_id, i.stato, b.box_serial AS cur_box
+       FROM outbound_box_items i LEFT JOIN outbound_boxes b ON i.box_id = b.id
+       WHERE i.fr = $1 ORDER BY i.id DESC LIMIT 1`,
+      [frNorm]
+    );
+    if (cur.rows.length > 0 && cur.rows[0].stato === 'spedito') {
+      return res.status(409).json({ ok: false, error: `FR ${frNorm} e in lavorazione (spedito in ${cur.rows[0].cur_box}).` });
+    }
+
+    const maxRes = await client.query(`
+      SELECT COALESCE(MAX(CAST(SUBSTRING(box_serial FROM 'RBOX-(?:OUT-)?(\\d+)') AS INTEGER)), 0) AS max_num
+      FROM outbound_boxes WHERE box_serial ~ '^RBOX-(?:OUT-)?\\d+$'
+    `);
+    const newSerial = `RBOX-${String(maxRes.rows[0].max_num + 1).padStart(4, '0')}`;
+
+    const newBox = await client.query(
+      'INSERT INTO outbound_boxes (box_serial, tipo) VALUES ($1, $2) RETURNING id',
+      [newSerial, boxTipo]
+    );
+
+    if (cur.rows.length > 0) {
+      await client.query(
+        `UPDATE outbound_box_items SET box_id = $1, stato = 'raccolto', data_rientro = NULL WHERE id = $2`,
+        [newBox.rows[0].id, cur.rows[0].id]
+      );
+      return res.json({ ok: true, message: `Creata box ${newSerial} (${boxTipo}); FR ${frNorm} spostato da ${cur.rows[0].cur_box}.`, new_box_serial: newSerial, action: 'moved', from: cur.rows[0].cur_box });
+    }
+    await client.query(
+      'INSERT INTO outbound_box_items (box_id, fr) VALUES ($1, $2)',
+      [newBox.rows[0].id, frNorm]
+    );
+    return res.json({ ok: true, message: `Creata box ${newSerial} (${boxTipo}); FR ${frNorm} assegnato dal deposito.`, new_box_serial: newSerial, action: 'inserted' });
+
+  } catch (err) {
+    console.error('Errore outbox/assign-new:', err.message);
+    return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// ------------------------------------------------------------------------------
+// API — POST /api/outbox/create-empty
+// Crea una box vuota (next serial) del tipo dato. Body: { tipo }
+// ------------------------------------------------------------------------------
+app.post('/api/outbox/create-empty', async (req, res) => {
+  const { tipo } = req.body;
+  const validTypes = ['uscita_terzista', 'rientro_terzista', 'uscita_cliente'];
+  const boxTipo = validTypes.includes(tipo) ? tipo : 'uscita_cliente';
+  let client;
+  try {
+    client = await DB.connect();
+    const maxRes = await client.query(`
+      SELECT COALESCE(MAX(CAST(SUBSTRING(box_serial FROM 'RBOX-(?:OUT-)?(\\d+)') AS INTEGER)), 0) AS max_num
+      FROM outbound_boxes WHERE box_serial ~ '^RBOX-(?:OUT-)?\\d+$'
+    `);
+    const newSerial = `RBOX-${String(maxRes.rows[0].max_num + 1).padStart(4, '0')}`;
+    await client.query(
+      'INSERT INTO outbound_boxes (box_serial, tipo) VALUES ($1, $2)',
+      [newSerial, boxTipo]
+    );
+    return res.json({ ok: true, message: `Box ${newSerial} (${boxTipo}) creata.`, new_box_serial: newSerial });
+  } catch (err) {
+    console.error('Errore outbox/create-empty:', err.message);
     return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
   } finally {
     if (client) client.release();

@@ -146,6 +146,7 @@
       <button class="tab" onclick="switchTab('lookup')">🔍 Consulta Box</button>
       <button class="tab" onclick="switchTab('return')">↩️ Rientro</button>
       <button class="tab" onclick="switchTab('dashboard')">📊 Stato</button>
+      <button class="tab" onclick="switchTab('deposito')">🗃️ Deposito</button>
     </div>
 
     <!-- TAB: CREA BOX -->
@@ -368,6 +369,32 @@
         </div>
       </div>
     </div>
+
+    <!-- TAB: DEPOSITO -->
+    <div class="tab-panel" id="tab-deposito">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:8px;">
+          <h2 style="font-size:1rem;font-weight:600;">FR in deposito (fuori scatola)</h2>
+          <div style="display:flex;gap:8px;">
+            <button class="btn-dl" onclick="loadDeposito()" style="width:auto;flex:none;padding:8px 16px;">🔄 Aggiorna</button>
+            <button class="btn-dl" onclick="createEmptyBox()" style="width:auto;flex:none;padding:8px 16px;">➕ Crea box vuota</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:1rem;flex-wrap:wrap;">
+          <div style="flex:1;min-width:240px;">
+            <label class="field-label" for="dep-target-select">Box destinazione (con capienza)</label>
+            <select id="dep-target-select"></select>
+          </div>
+          <button class="btn-dl green" onclick="loadAssignableBoxesDep()" style="width:auto;flex:none;padding:10px 16px;">🔄 Aggiorna box</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr><th>#</th><th>FR</th><th>SN</th><th>Ext SN</th><th>ICCID</th><th>Esito</th><th>Data</th><th>Azioni</th></tr></thead>
+            <tbody id="deposito-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </main>
 
   <footer>
@@ -388,6 +415,7 @@
       document.getElementById('tab-' + tab).classList.add('active');
       resetTab(tab);
       if (tab === 'dashboard') loadDashboard();
+      if (tab === 'deposito') { loadAssignableBoxesDep(); loadDeposito(); }
     }
 
     // Reset completo del tab appena attivato + autofocus
@@ -1056,6 +1084,80 @@
       } catch(err) {
         console.error('Dashboard error:', err);
       }
+    }
+    // ════════════════════════════════════════════════════════════════════════════
+    // TAB 5: DEPOSITO (FR fuori scatola)
+    // ════════════════════════════════════════════════════════════════════════════
+    async function loadDeposito() {
+      const tbody = document.getElementById('deposito-tbody');
+      try {
+        const res = await fetch('/api/deposito');
+        const json = await res.json();
+        if (!json.ok) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--nok);padding:20px;">Errore caricamento</td></tr>'; return; }
+        if (json.rows.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">Nessun FR in deposito</td></tr>';
+          return;
+        }
+        tbody.innerHTML = '';
+        json.rows.forEach((r, i) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td class="num">${i+1}</td><td class="fr">${r.fr}</td><td style="font-size:0.72rem;">${r.sn||'—'}</td><td style="font-size:0.72rem;">${r.ext_sn||'—'}</td><td style="font-size:0.72rem;">${r.iccid||'—'}</td><td>${esitoBadge(r.esito_test)}</td><td class="date">${fmtDate(r.data)}</td><td><button class="fr-edit-btn" onclick="assignFromDeposito('${r.fr}')" title="Assegna alla box destinazione">➡</button></td>`;
+          tbody.appendChild(tr);
+        });
+      } catch(err) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--nok);padding:20px;">Errore di rete</td></tr>';
+      }
+    }
+
+    async function loadAssignableBoxesDep() {
+      const sel = document.getElementById('dep-target-select');
+      if (!sel) return;
+      try {
+        const res = await fetch('/api/outbox/assignable-boxes');
+        const json = await res.json();
+        sel.innerHTML = '';
+        if (!json.ok || json.rows.length === 0) {
+          sel.innerHTML = '<option value="">— nessuna box con capienza —</option>';
+          return;
+        }
+        json.rows.forEach(b => {
+          const opt = document.createElement('option');
+          opt.value = b.box_serial;
+          opt.textContent = `${b.box_serial} — ${b.tipo} (${b.count}/${b.max})`;
+          sel.appendChild(opt);
+        });
+      } catch(err) {
+        sel.innerHTML = '<option value="">errore</option>';
+      }
+    }
+
+    async function assignFromDeposito(fr) {
+      const sel = document.getElementById('dep-target-select');
+      const target = sel ? sel.value : '';
+      if (!target) { alert('Nessuna box destinazione disponibile con capienza. Crea prima una box vuota col pulsante in alto.'); return; }
+      if (!confirm(`Assegnare ${fr} alla box ${target}?`)) return;
+      try {
+        const res = await fetch('/api/outbox/assign', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ fr, target_box_serial: target })
+        });
+        const json = await res.json();
+        if (json.ok) { loadDeposito(); loadAssignableBoxesDep(); }
+        else { alert('Errore:\n' + json.error); }
+      } catch(err) { alert('Errore di rete.'); }
+    }
+
+    async function createEmptyBox() {
+      if (!confirm('Creare una nuova box vuota (uscita_cliente)?')) return;
+      try {
+        const res = await fetch('/api/outbox/create-empty', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ tipo: 'uscita_cliente' })
+        });
+        const json = await res.json();
+        if (json.ok) { alert(json.message); loadAssignableBoxesDep(); }
+        else { alert('Errore:\n' + json.error); }
+      } catch(err) { alert('Errore di rete.'); }
     }
   </script>
 </body>

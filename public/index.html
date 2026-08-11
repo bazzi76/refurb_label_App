@@ -573,6 +573,30 @@
             <tr><td>Data test</td> <td id="dt-data"></td></tr>
             <tr><td>Etichetta</td> <td id="dt-stampa"></td></tr>
           </table>
+
+          <!-- Assegnazione box (visibile se il record ha un FR) -->
+          <div id="box-assign" style="display:none; margin-top:1rem; padding:1rem; background:var(--bg2); border:1px solid var(--border); border-radius:8px;">
+            <div style="font-size:0.72rem; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--text2); margin-bottom:8px;">Gestione box</div>
+            <div id="box-assign-status" style="font-size:0.85rem; margin-bottom:12px;"></div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end;">
+              <div style="flex:1; min-width:200px;">
+                <label for="assign-select" style="display:block; font-size:0.72rem; font-weight:600; color:var(--text2); margin-bottom:4px;">Assegna a box esistente (con capienza)</label>
+                <select id="assign-select" style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:0.85rem; padding:8px 10px; outline:none;"></select>
+              </div>
+              <button class="btn-action green" id="assign-btn" onclick="assignToBox()" style="margin:0; flex:none;">➡ Assegna</button>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; margin-top:10px;">
+              <div style="flex:1; min-width:200px;">
+                <label for="assign-new-tipo" style="display:block; font-size:0.72rem; font-weight:600; color:var(--text2); margin-bottom:4px;">oppure crea nuova box</label>
+                <select id="assign-new-tipo" style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--sans); font-size:0.85rem; padding:8px 10px; outline:none;">
+                  <option value="uscita_cliente">Uscita verso cliente finale</option>
+                  <option value="uscita_terzista">Uscita verso terzista</option>
+                  <option value="rientro_terzista">Rientro dal terzista</option>
+                </select>
+              </div>
+              <button class="btn-action blue" id="assign-new-btn" onclick="assignNewBox()" style="margin:0; flex:none;">➕ Crea e assegna</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -702,6 +726,83 @@
       }
     }
 
+    // ── GESTIONE BOX (deposito / assegnazione) ─────────────────────────────────
+    let currentBox = null;
+    let currentFR  = null;
+
+    function updateBoxAssign(box, fr) {
+      const sec = document.getElementById('box-assign');
+      const status = document.getElementById('box-assign-status');
+      currentBox = box;
+      currentFR  = fr || null;
+      if (!fr) { sec.style.display = 'none'; return; }
+      sec.style.display = 'block';
+      const tipos = { 'uscita_terzista':'Uscita terzista', 'rientro_terzista':'Rientro terzista', 'uscita_cliente':'Uscita cliente' };
+      if (box) {
+        status.innerHTML = `📦 In box <strong>${box.box_serial}</strong> (${tipos[box.tipo]||box.tipo}) — stato FR: <strong>${box.item_stato}</strong>`;
+      } else {
+        status.innerHTML = `<span style="color:var(--warn);">📦 In deposito (fuori scatola) — non assegnato ad alcuna box</span>`;
+      }
+      loadAssignableBoxes();
+    }
+
+    async function loadAssignableBoxes() {
+      const sel = document.getElementById('assign-select');
+      try {
+        const res = await fetch('/api/outbox/assignable-boxes');
+        const json = await res.json();
+        sel.innerHTML = '';
+        if (!json.ok || json.rows.length === 0) {
+          sel.innerHTML = '<option value="">— nessuna box con capienza —</option>';
+          return;
+        }
+        json.rows.forEach(b => {
+          const opt = document.createElement('option');
+          opt.value = b.box_serial;
+          opt.textContent = `${b.box_serial} — ${b.tipo} (${b.count}/${b.max})`;
+          sel.appendChild(opt);
+        });
+      } catch(err) {
+        sel.innerHTML = '<option value="">errore caricamento</option>';
+      }
+    }
+
+    async function assignToBox() {
+      if (!currentFR) return;
+      const sel = document.getElementById('assign-select');
+      const target = sel.value;
+      if (!target) { alert('Nessuna box destinazione disponibile con capienza. Crea una nuova box con il pulsante sotto.'); return; }
+      const btn = document.getElementById('assign-btn');
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/outbox/assign', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ fr: currentFR, target_box_serial: target })
+        });
+        const json = await res.json();
+        if (json.ok) { submitVerify(); }
+        else { alert('Errore:\n' + json.error); }
+      } catch(err) { alert('Errore di rete.'); }
+      finally { btn.disabled = false; }
+    }
+
+    async function assignNewBox() {
+      if (!currentFR) return;
+      const tipo = document.getElementById('assign-new-tipo').value;
+      const btn = document.getElementById('assign-new-btn');
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/outbox/assign-new', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ fr: currentFR, tipo })
+        });
+        const json = await res.json();
+        if (json.ok) { alert(json.message); submitVerify(); }
+        else { alert('Errore:\n' + json.error); }
+      } catch(err) { alert('Errore di rete.'); }
+      finally { btn.disabled = false; }
+    }
+
     // ── STEP 1: VERIFICA ────────────────────────────────────────────────────────
     async function submitVerify() {
       const suffix = input.value.trim();
@@ -760,6 +861,8 @@
             `Il collaudo per ${displayId} non è andato a buon fine (${data.esito_test}).`, data);
           printBtn.style.display = 'none';
         }
+
+        updateBoxAssign(json.box, data.fr);
 
       } catch (err) {
         showResult('nok', '✕', 'ERRORE DI RETE',
