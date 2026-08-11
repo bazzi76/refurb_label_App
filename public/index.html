@@ -730,7 +730,7 @@
         const res  = await fetch('/api/verify', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ ext_sn }),
+          body:    JSON.stringify(payload),
         });
         const json = await res.json();
 
