@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gruppo Sim Tel — Uscita Box</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#0d1117; --bg2:#161b22; --bg3:#1c2128; --border:#30363d; --border2:#21262d;
+      --accent:#2ea8e0; --ok:#3fb950; --ok-dim:rgba(63,185,80,0.12); --nok:#f85149; --nok-dim:rgba(248,81,73,0.12);
+      --warn:#e3a008; --warn-dim:rgba(227,160,8,0.12);
+      --text:#e6edf3; --text2:#8b949e; --text3:#484f58;
+      --mono:'JetBrains Mono',monospace; --sans:'Inter',sans-serif; --radius:8px;
+    }
+    body { background:var(--bg); color:var(--text); font-family:var(--sans); min-height:100vh; display:flex; flex-direction:column; }
+    .topbar { background:var(--bg2); border-bottom:1px solid var(--border); padding:14px 32px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    .topbar img { height:38px; width:auto; }
+    .topbar-title { font-size:0.78rem; font-weight:500; color:var(--text2); letter-spacing:0.05em; text-transform:uppercase; text-align:center; flex:1; }
+    .topbar-title strong { display:block; color:var(--accent); font-size:0.9rem; letter-spacing:0.02em; }
+    .nav-links { display:flex; gap:8px; }
+    .btn-nav { padding:8px 18px; background:transparent; border:1px solid var(--border); border-radius:6px; color:var(--text2); font-family:var(--sans); font-size:0.82rem; font-weight:600; text-decoration:none; white-space:nowrap; transition:border-color 0.15s,color 0.15s; }
+    .btn-nav:hover { border-color:var(--accent); color:var(--accent); }
+    main { flex:1; max-width:960px; width:100%; margin:0 auto; padding:2rem 1.5rem; display:flex; flex-direction:column; gap:1.5rem; }
+    .page-title h1 { font-size:1.4rem; font-weight:700; letter-spacing:-0.02em; }
+    .page-title h1 span { color:var(--accent); }
+    .page-title p { font-size:0.82rem; color:var(--text2); margin-top:4px; }
+    .tabs { display:flex; gap:0; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+    .tab { padding:12px 20px; background:transparent; border:none; border-bottom:2px solid transparent; color:var(--text2); font-family:var(--sans); font-size:0.85rem; font-weight:600; cursor:pointer; transition:color 0.15s,border-color 0.15s; }
+    .tab:hover { color:var(--text); }
+    .tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+    .tab-panel { display:none; }
+    .tab-panel.active { display:block; animation:fadeUp 0.25s ease; }
+    @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+    .card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:1.5rem; }
+    .card + .card { margin-top:1.5rem; }
+    .field-label { display:block; font-size:0.72rem; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--text2); margin-bottom:8px; }
+    .box-input-wrap { display:flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:var(--bg); transition:border-color 0.15s,box-shadow 0.15s; }
+    .box-input-wrap:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px rgba(46,168,224,0.15); }
+    .box-prefix { padding:0 16px; display:flex; align-items:center; font-family:var(--mono); font-size:1.05rem; font-weight:500; color:var(--accent); background:var(--bg3); border-right:1px solid var(--border); flex-shrink:0; letter-spacing:0.05em; }
+    .box-input-wrap input[type="text"] { background:transparent; border:none; outline:none; color:var(--text); font-family:var(--mono); font-size:1.3rem; font-weight:500; letter-spacing:0.1em; padding:12px 16px; width:100%; }
+    .box-input-wrap input[type="text"]::placeholder { color:var(--text3); }
+    textarea { width:100%; height:200px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:0.8rem; line-height:1.7; padding:12px 14px; resize:vertical; outline:none; transition:border-color 0.15s,box-shadow 0.15s; }
+    textarea:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(46,168,224,0.12); }
+    textarea::placeholder { color:var(--text3); }
+    .hint { font-family:var(--mono); font-size:0.67rem; color:var(--text3); margin-top:8px; }
+    .fr-counter { display:flex; justify-content:space-between; align-items:center; font-family:var(--mono); font-size:0.72rem; color:var(--text2); margin-top:8px; }
+    .fr-counter .count { color:var(--accent); font-weight:600; }
+    .fr-counter .count.full { color:var(--ok); }
+    .fr-counter .count.over { color:var(--nok); }
+    select { background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--sans); font-size:0.85rem; padding:10px 12px; width:100%; outline:none; cursor:pointer; }
+    select:focus { border-color:var(--accent); }
+    .btn-primary { margin-top:16px; width:100%; padding:14px; background:var(--accent); color:#fff; border:none; border-radius:6px; font-family:var(--sans); font-size:0.92rem; font-weight:600; letter-spacing:0.04em; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; transition:background 0.15s,transform 0.1s,box-shadow 0.15s; }
+    .btn-primary:hover { background:#3dbcf7; box-shadow:0 4px 16px rgba(46,168,224,0.3); }
+    .btn-primary:active { transform:scale(0.98); }
+    .btn-primary:disabled { background:var(--bg3); color:var(--text3); border:1px solid var(--border); cursor:not-allowed; box-shadow:none; transform:none; }
+    .btn-primary.loading .spinner { display:block; }
+    .btn-primary.loading .btn-text { opacity:0.6; }
+    .spinner { width:16px; height:16px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:spin 0.7s linear infinite; display:none; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .result { margin-top:1rem; border-radius:6px; overflow:hidden; display:none; animation:fadeUp 0.25s ease; }
+    .result-header { padding:10px 16px; font-size:0.78rem; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; }
+    .result.ok .result-header { background:var(--ok-dim); color:var(--ok); border:1px solid rgba(63,185,80,0.25); border-bottom:none; border-radius:6px 6px 0 0; }
+    .result.nok .result-header { background:var(--nok-dim); color:var(--nok); border:1px solid rgba(248,81,73,0.25); border-bottom:none; border-radius:6px 6px 0 0; }
+    .result.warn .result-header { background:var(--warn-dim); color:var(--warn); border:1px solid rgba(227,160,8,0.25); border-bottom:none; border-radius:6px 6px 0 0; }
+    .result-body { background:var(--bg); border:1px solid var(--border); border-top:none; border-radius:0 0 6px 6px; padding:1rem 1.25rem; font-size:0.85rem; color:var(--text2); line-height:1.5; }
+    .table-wrap { overflow-x:auto; margin-top:1rem; }
+    table.data { width:100%; border-collapse:collapse; font-size:0.8rem; }
+    thead th { background:var(--bg3); padding:10px 14px; text-align:left; font-size:0.68rem; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--text2); border-bottom:1px solid var(--border); white-space:nowrap; }
+    tbody tr { border-bottom:1px solid var(--border2); }
+    tbody tr:last-child { border-bottom:none; }
+    tbody tr:hover { background:var(--bg3); }
+    tbody td { padding:9px 14px; font-family:var(--mono); font-size:0.78rem; vertical-align:middle; }
+    td.num { color:var(--text3); width:40px; text-align:center; }
+    td.fr { font-weight:600; }
+    td.date { color:var(--text2); font-size:0.72rem; white-space:nowrap; }
+    .download-btns { display:flex; gap:8px; margin-top:1rem; flex-wrap:wrap; }
+    .btn-dl { flex:1; min-width:120px; padding:10px 14px; border-radius:6px; font-family:var(--sans); font-size:0.82rem; font-weight:600; cursor:pointer; border:1px solid var(--border); background:var(--bg3); color:var(--text2); transition:border-color 0.15s,color 0.15s; display:flex; align-items:center; justify-content:center; gap:6px; }
+    .btn-dl:hover { border-color:var(--accent); color:var(--accent); }
+    .btn-dl.green { border-color:rgba(63,185,80,0.4); color:var(--ok); }
+    .btn-dl.green:hover { background:var(--ok-dim); }
+    .btn-dl:disabled { opacity:0.4; cursor:not-allowed; }
+    .box-info { background:var(--bg3); border:1px solid var(--border); border-radius:6px; padding:12px 16px; margin-top:1rem; display:flex; gap:24px; flex-wrap:wrap; font-size:0.78rem; }
+    .box-info .item { display:flex; gap:6px; align-items:center; }
+    .box-info .k { color:var(--text2); font-weight:600; }
+    .box-info .v { font-family:var(--mono); color:var(--accent); }
+    .badge { display:inline-block; padding:2px 10px; border-radius:4px; font-size:0.68rem; font-weight:700; letter-spacing:0.05em; }
+    .badge-creato { background:var(--warn-dim); color:var(--warn); border:1px solid rgba(227,160,8,0.3); }
+    .badge-spedito { background:var(--accent); color:#fff; }
+    .badge-completato { background:var(--ok-dim); color:var(--ok); border:1px solid rgba(63,185,80,0.3); }
+    .badge-rientrato { background:var(--ok-dim); color:var(--ok); border:1px solid rgba(63,185,80,0.3); }
+    .badge-raccolto { background:var(--bg3); color:var(--text2); border:1px solid var(--border); }
+    .ship-section { margin-top:1rem; padding:1rem; background:var(--bg3); border:1px solid var(--border); border-radius:6px; display:none; }
+    .ship-section.visible { display:block; }
+    .ship-section .ddt-input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:0.9rem; padding:10px 14px; outline:none; margin-bottom:10px; }
+    .ship-section .ddt-input:focus { border-color:var(--accent); }
+    .fr-del-btn { width:26px; height:26px; border-radius:5px; border:1px solid rgba(248,81,73,0.35); background:var(--nok-dim); color:var(--nok); font-size:0.8rem; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.15s,border-color 0.15s; }
+    .fr-del-btn:hover { background:rgba(248,81,73,0.25); border-color:var(--nok); }
+    .summary-cards { display:flex; gap:12px; flex-wrap:wrap; }
+    .summary-card { flex:1; min-width:140px; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:1.25rem; text-align:center; }
+    .summary-card .num { font-size:2rem; font-weight:700; font-family:var(--mono); }
+    .summary-card .label { font-size:0.72rem; color:var(--text2); text-transform:uppercase; letter-spacing:0.08em; margin-top:4px; }
+    .summary-card.spediti .num { color:var(--accent); }
+    .summary-card.rientrati .num { color:var(--ok); }
+    .summary-card.lavorazione .num { color:var(--warn); }
+    .summary-card.cliente .num { color:#a371f7; }
+    footer { text-align:center; padding:20px; border-top:1px solid var(--border2); font-size:0.72rem; color:var(--text3); line-height:1.7; }
+    footer .credits { display:flex; align-items:center; justify-content:center; gap:6px; flex-wrap:wrap; }
+    footer .credits .by { color:var(--text2); font-weight:500; }
+    footer .credits .claude { color:var(--accent); font-weight:600; display:inline-flex; align-items:center; gap:4px; }
+    footer .credits .claude::before { content:'✦'; font-size:0.6rem; }
+    .statusbar { display:flex; align-items:center; justify-content:center; gap:6px; font-family:var(--mono); font-size:0.62rem; color:var(--text3); letter-spacing:0.08em; margin-bottom:8px; }
+    .dot { width:6px; height:6px; border-radius:50%; background:var(--ok); animation:pulse 2.5s ease-in-out infinite; flex-shrink:0; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.25} }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <img src="logo_web.png" alt="Gruppo Sim Tel">
+    <div class="topbar-title"><strong>Refurb Label System</strong>Box Management</div>
+    <div class="nav-links">
+      <a href="/" class="btn-nav">🖨 Stampa</a>
+      <a href="/report.html" class="btn-nav">📊 Report</a>
+    </div>
+  </div>
+
+  <main>
+    <div class="page-title">
+      <h1>Box <span>Management</span></h1>
+      <p>Gestione uscita/rientro box verso terzista e cliente finale</p>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('create')">📦 Crea Box</button>
+      <button class="tab" onclick="switchTab('lookup')">🔍 Consulta Box</button>
+      <button class="tab" onclick="switchTab('return')">↩️ Rientro</button>
+      <button class="tab" onclick="switchTab('dashboard')">📊 Stato</button>
+    </div>
+
+    <!-- TAB: CREA BOX -->
+    <div class="tab-panel active" id="tab-create">
+      <div class="card">
+        <label class="field-label" for="box-serial-input">Seriale box</label>
+        <div class="box-input-wrap">
+          <div class="box-prefix">RBOX-</div>
+          <input type="text" id="box-serial-input" maxlength="10" placeholder="NNNN" autocomplete="off" inputmode="numeric" autofocus>
+        </div>
+        <p class="hint">// inserisci solo le cifre finali (es. 0001 → RBOX-0001)</p>
+
+        <div style="margin-top:1.25rem;">
+          <label class="field-label" for="box-tipo-select">Tipo box</label>
+          <select id="box-tipo-select">
+            <option value="uscita_terzista">Uscita verso terzista</option>
+            <option value="rientro_terzista">Rientro dal terzista</option>
+            <option value="uscita_cliente">Uscita verso cliente finale</option>
+          </select>
+        </div>
+
+        <div style="margin-top:1.25rem;">
+          <label class="field-label" for="fr-list-input">Codici FR (uno per riga)</label>
+          <textarea id="fr-list-input" placeholder="FR12345&#10;FR12346&#10;FR12347&#10;...&#10;&#10;(24 FR = una scatola completa)"></textarea>
+          <div class="fr-counter">
+            <span>FR inseriti: <span class="count" id="fr-count">0</span> / <span id="fr-max-label">24</span></span>
+            <span style="font-size:0.67rem;color:var(--text3);display:flex;align-items:center;gap:6px;">
+              Max:
+              <input type="text" id="fr-max-input" value="24" maxlength="3" inputmode="numeric"
+                style="width:48px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono);font-size:0.8rem;padding:3px 8px;text-align:center;outline:none;">
+            </span>
+          </div>
+        </div>
+
+        <button class="btn-primary" id="create-btn" onclick="createBox()">
+          <div class="spinner"></div><span class="btn-text">📦 Salva Box</span>
+        </button>
+
+        <div class="result" id="create-result">
+          <div class="result-header" id="create-result-header"></div>
+          <div class="result-body" id="create-result-body"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: CONSULTA BOX -->
+    <div class="tab-panel" id="tab-lookup">
+      <div class="card">
+        <label class="field-label" for="lookup-box-input">Seriale box da consultare</label>
+        <div class="box-input-wrap">
+          <div class="box-prefix">RBOX-</div>
+          <input type="text" id="lookup-box-input" maxlength="10" placeholder="NNNN" autocomplete="off" inputmode="numeric">
+        </div>
+        <p class="hint">// inserisci solo le cifre (es. 0001 → RBOX-0001). Per le box vecchie: OUT-0001</p>
+
+        <button class="btn-primary" id="lookup-btn" onclick="lookupBox()">
+          <div class="spinner"></div><span class="btn-text">🔍 Cerca Box</span>
+        </button>
+
+        <div class="result" id="lookup-result">
+          <div class="result-header" id="lookup-result-header"></div>
+          <div class="result-body" id="lookup-result-body"></div>
+        </div>
+
+        <div class="box-info" id="box-info" style="display:none;">
+          <div class="item"><span class="k">Box:</span><span class="v" id="info-serial"></span></div>
+          <div class="item"><span class="k">Tipo:</span><span class="v" id="info-tipo"></span></div>
+          <div class="item"><span class="k">Stato:</span><span id="info-stato"></span></div>
+          <div class="item"><span class="k">Creato:</span><span class="v" id="info-date"></span></div>
+          <div class="item"><span class="k">Spedizione:</span><span class="v" id="info-spedizione"></span></div>
+          <div class="item"><span class="k">DDT:</span><span class="v" id="info-ddt"></span></div>
+          <div class="item"><span class="k">FR totali:</span><span class="v" id="info-count"></span></div>
+        </div>
+
+        <div class="table-wrap" id="table-wrap" style="display:none;">
+          <table class="data">
+            <thead><tr><th>#</th><th>Codice FR</th><th>Stato</th><th>Data inserimento</th><th>Data rientro</th><th>Azioni</th></tr></thead>
+            <tbody id="lookup-tbody"></tbody>
+          </table>
+        </div>
+
+        <!-- SPEDIZIONE -->
+        <div class="ship-section" id="ship-section">
+          <div id="ship-title" style="font-size:0.85rem;font-weight:600;color:var(--accent);margin-bottom:8px;"></div>
+          <label class="field-label" for="ddt-input">Numero DDT di uscita</label>
+          <input type="text" id="ddt-input" class="ddt-input" placeholder="es. DDT-2026-001" autocomplete="off">
+          <button class="btn-primary" id="ship-btn" onclick="shipBox()" style="margin-top:0;">
+            <div class="spinner"></div><span class="btn-text" id="ship-btn-text">🚚 Spedisci Box</span>
+          </button>
+        </div>
+
+        <div class="download-btns" id="download-btns" style="display:none;">
+          <button class="btn-dl green" onclick="downloadExport('pdf')">📄 PDF</button>
+          <button class="btn-dl" onclick="downloadExport('csv')">⬇ CSV</button>
+          <button class="btn-dl" onclick="downloadExport('txt')">⬇ TXT</button>
+        </div>
+
+        <!-- MODIFICA BOX (visibile solo se box in stato 'creato') -->
+        <div class="ship-section" id="edit-section">
+          <div style="font-size:0.85rem;font-weight:600;color:var(--warn);margin-bottom:10px;">✎ Modifica box (non spedito)</div>
+
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;">
+            <div style="flex:1;min-width:180px;">
+              <label class="field-label" for="edit-tipo-select">Tipo box</label>
+              <select id="edit-tipo-select">
+                <option value="uscita_terzista">Uscita verso terzista</option>
+                <option value="rientro_terzista">Rientro dal terzista</option>
+                <option value="uscita_cliente">Uscita verso cliente finale</option>
+              </select>
+            </div>
+            <button class="btn-dl" id="edit-tipo-btn" onclick="changeBoxTipo()" style="flex:none;padding:10px 16px;">Aggiorna tipo</button>
+          </div>
+
+          <label class="field-label" for="add-fr-input">Aggiungi FR a questo box</label>
+          <textarea id="add-fr-input" placeholder="FR12345&#10;FR12346&#10;..." style="height:90px;"></textarea>
+          <button class="btn-primary" id="add-fr-btn" onclick="addFrToBox()" style="margin-top:10px;">
+            <div class="spinner"></div><span class="btn-text">➕ Aggiungi FR</span>
+          </button>
+
+          <hr style="border:none;border-top:1px solid var(--border);margin:16px 0;">
+          <button class="btn-dl" id="delete-box-btn" onclick="deleteBox()" style="border-color:rgba(248,81,73,0.4);color:var(--nok);width:100%;">🗑 Elimina box</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: RIENTRO -->
+    <div class="tab-panel" id="tab-return">
+      <div class="card">
+        <label class="field-label" for="return-box-input">Box di rientro (opzionale)</label>
+        <div class="box-input-wrap">
+          <div class="box-prefix">RBOX-</div>
+          <input type="text" id="return-box-input" maxlength="10" placeholder="NNNN (oppure vuoto)" autocomplete="off" inputmode="numeric">
+        </div>
+        <p class="hint">// se i FR rientrano in una box, inserisci il seriale. Altrimenti lascia vuoto.</p>
+
+        <div style="margin-top:1.25rem;">
+          <label class="field-label" for="return-fr-input">Codici FR rientrati (uno per riga)</label>
+          <textarea id="return-fr-input" placeholder="FR12345&#10;FR12346&#10;FR12347&#10;..."></textarea>
+        </div>
+
+        <button class="btn-primary" id="return-btn" onclick="registerReturn()">
+          <div class="spinner"></div><span class="btn-text">↩️ Registra Rientro</span>
+        </button>
+
+        <div class="result" id="return-result">
+          <div class="result-header" id="return-result-header"></div>
+          <div class="result-body" id="return-result-body"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: DASHBOARD -->
+    <div class="tab-panel" id="tab-dashboard">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+          <h2 style="font-size:1rem;font-weight:600;">Panoramica Lavorazione</h2>
+          <button class="btn-dl" onclick="loadDashboard()" style="width:auto;flex:none;padding:8px 16px;">🔄 Aggiorna</button>
+        </div>
+
+        <div class="summary-cards" id="summary-cards">
+          <div class="summary-card lavorazione"><div class="num" id="sum-lavorazione">—</div><div class="label">In Lavorazione (terzista)</div></div>
+          <div class="summary-card rientrati"><div class="num" id="sum-rientrati">—</div><div class="label">Rientrati (pronti)</div></div>
+          <div class="summary-card cliente"><div class="num" id="sum-cliente">—</div><div class="label">Spediti al Cliente</div></div>
+        </div>
+
+        <div class="table-wrap" style="margin-top:1.5rem;">
+          <table class="data">
+            <thead><tr><th>Box</th><th>Tipo</th><th>Stato</th><th>DDT</th><th>Data spedizione</th><th>FR totali</th><th>Rientrati</th></tr></thead>
+            <tbody id="dashboard-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="statusbar"><span class="dot"></span> ONLINE &nbsp;·&nbsp; DB device_db@10.11.12.8</div>
+    <div class="credits">
+      <span class="by">Sviluppato da Giacomo Mattei</span>
+      <span style="color:var(--text3)">con il contributo di</span>
+      <span class="claude">Claude — Anthropic</span>
+    </div>
+  </footer>
+
+  <script>
+    // ── TAB SWITCHING ──
+    function switchTab(tab) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelector(`.tab[onclick*="${tab}"]`).classList.add('active');
+      document.getElementById('tab-' + tab).classList.add('active');
+      resetTab(tab);
+      if (tab === 'dashboard') loadDashboard();
+    }
+
+    // Reset completo del tab appena attivato + autofocus
+    function resetTab(tab) {
+      if (tab === 'create') {
+        frListInput.value = '';
+        frCount.textContent = '0';
+        frCount.classList.remove('full','over');
+        boxTipoSelect.value = 'uscita_terzista';
+        document.getElementById('create-result').style.display = 'none';
+        boxInput.value = '';
+        suggestedNum = '';
+        loadNextSerial();   // precompila prossimo seriale + focus
+      } else if (tab === 'lookup') {
+        lookupInput.value = '';
+        lookupBoxSerial = null;
+        document.getElementById('lookup-result').style.display = 'none';
+        document.getElementById('box-info').style.display = 'none';
+        document.getElementById('table-wrap').style.display = 'none';
+        document.getElementById('download-btns').style.display = 'none';
+        document.getElementById('ship-section').classList.remove('visible');
+        document.getElementById('edit-section').classList.remove('visible');
+        document.getElementById('add-fr-input').value = '';
+        document.getElementById('edit-tipo-select').value = 'uscita_terzista';
+        lookupInput.focus();
+      } else if (tab === 'return') {
+        returnBoxInput.value = '';
+        returnFrInput.value = '';
+        document.getElementById('return-result').style.display = 'none';
+        returnBoxInput.focus();
+      }
+    }
+
+    // ── HELPERS ──
+    function fmtDate(iso) {
+      if (!iso) return '—';
+      return new Date(iso).toLocaleString('it-IT');
+    }
+    function statoBadge(stato) {
+      const map = {
+        'creato':    '<span class="badge badge-creato">CREATO</span>',
+        'spedito':   '<span class="badge badge-spedito">SPEDITO</span>',
+        'completato':'<span class="badge badge-completato">COMPLETATO</span>',
+        'raccolto':  '<span class="badge badge-raccolto">RACCOLTO</span>',
+        'rientrato': '<span class="badge badge-rientrato">RIENTRATO</span>',
+      };
+      return map[stato] || `<span class="badge badge-raccolto">${stato || '—'}</span>`;
+    }
+    function tipoLabel(tipo) {
+      const map = { 'uscita_terzista':'Uscita terzista', 'rientro_terzista':'Rientro terzista', 'uscita_cliente':'Uscita cliente' };
+      return map[tipo] || tipo || '—';
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // TAB 1: CREA BOX
+    // ════════════════════════════════════════════════════════════════════════════
+    const boxInput    = document.getElementById('box-serial-input');
+    const frListInput = document.getElementById('fr-list-input');
+    const frCount     = document.getElementById('fr-count');
+    const frMaxInput  = document.getElementById('fr-max-input');
+    const frMaxLabel  = document.getElementById('fr-max-label');
+    const boxTipoSelect = document.getElementById('box-tipo-select');
+    const createBtn   = document.getElementById('create-btn');
+
+    function getMaxFR() { const v = parseInt(frMaxInput.value) || 24; return v > 0 ? v : 24; }
+    function refreshMaxLabel() { frMaxLabel.textContent = getMaxFR(); }
+
+    boxInput.addEventListener('input', () => { boxInput.value = boxInput.value.replace(/\D/g,'').slice(0,10); });
+    boxInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') frListInput.focus(); });
+    frMaxInput.addEventListener('input', () => { frMaxInput.value = frMaxInput.value.replace(/\D/g,'').slice(0,3); refreshMaxLabel(); frListInput.dispatchEvent(new Event('input')); });
+    frMaxInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); frListInput.focus(); } });
+    frListInput.addEventListener('input', () => {
+      const lines = frListInput.value.split('\n').map(l => l.trim().toUpperCase()).filter(l => l.length > 0);
+      const max = getMaxFR();
+      frCount.textContent = lines.length;
+      frCount.classList.remove('full','over');
+      if (lines.length === max) frCount.classList.add('full');
+      if (lines.length > max) frCount.classList.add('over');
+    });
+    frListInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) createBox(); });
+
+    let suggestedNum = '';
+    async function loadNextSerial() {
+      try {
+        const res = await fetch('/api/outbox/next-serial');
+        const json = await res.json();
+        if (json.ok && json.next_num) {
+          suggestedNum = json.next_num;
+          if (!boxInput.value || boxInput.value === suggestedNum) {
+            boxInput.value = suggestedNum;
+            boxInput.focus(); boxInput.select();
+          }
+        }
+      } catch(err) {}
+    }
+    loadNextSerial();
+
+    function setCreateLoading(on) { createBtn.disabled = on; createBtn.classList.toggle('loading', on); }
+    function showCreateResult(type, title, message) {
+      const r = document.getElementById('create-result');
+      r.style.display = 'block'; r.className = `result ${type}`;
+      document.getElementById('create-result-header').textContent = title;
+      document.getElementById('create-result-body').innerHTML = message;
+    }
+
+    let currentBoxSerial = null;
+
+    async function createBox() {
+      const suffix = boxInput.value.trim();
+      if (!suffix) { boxInput.focus(); boxInput.style.outline='2px solid var(--nok)'; setTimeout(()=>boxInput.style.outline='',800); return; }
+      const box_serial = 'RBOX-' + suffix;
+      const tipo = boxTipoSelect.value;
+      const frs = frListInput.value.split('\n').map(l => l.trim().toUpperCase()).filter(l => l.length > 0);
+      if (frs.length === 0) { frListInput.focus(); frListInput.style.outline='2px solid var(--nok)'; setTimeout(()=>frListInput.style.outline='',800); return; }
+
+      setCreateLoading(true);
+      document.getElementById('create-result').style.display = 'none';
+
+      try {
+        const res = await fetch('/api/outbox/create', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ box_serial, frs, tipo })
+        });
+        const json = await res.json();
+
+        if (json.ok) {
+          currentBoxSerial = box_serial;
+          showCreateResult('ok', '✓ BOX SALVATO',
+            `${json.message}<br><br>` +
+            `<strong>FR aggiunti:</strong> ${json.added}<br>` +
+            (json.moved ? `<strong>FR spostati (rientrati da altre box):</strong> ${json.moved}<br>` : '') +
+            (json.inserted ? `<strong>FR nuovi:</strong> ${json.inserted}<br>` : '') +
+            (json.skipped ? `<strong>FR saltati (duplicati):</strong> ${json.skipped}<br>` : '') +
+            `<strong>Totale FR nel box:</strong> ${json.total}` +
+            `<br><br><div style="display:flex;align-items:center;gap:10px;margin-top:8px;">` +
+            `<button class="btn-action green" id="print-label-btn" onclick="printBoxLabel()" ` +
+            `style="padding:10px 18px;border-radius:6px;font-family:var(--sans);font-size:0.85rem;font-weight:600;cursor:pointer;background:var(--ok-dim);color:var(--ok);border:1px solid var(--ok);">🖨 Stampa etichetta box</button>` +
+            `<span style="font-size:0.72rem;color:var(--text3);display:flex;align-items:center;gap:6px;">` +
+            `Copie: <input type="text" id="print-copies" value="1" maxlength="2" inputmode="numeric" ` +
+            `style="width:42px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono);font-size:0.8rem;padding:4px 6px;text-align:center;outline:none;">` +
+            `</span></div>`);
+          frListInput.value = ''; frCount.textContent = '0'; frCount.classList.remove('full','over');
+          suggestedNum = ''; loadNextSerial();
+        } else if (json.conflict) {
+          const conflictRows = json.conflicts.map(c => `<tr><td style="font-weight:600;color:var(--nok);">${c.fr}</td><td style="color:var(--text2);">${c.box_serial}</td></tr>`).join('');
+          showCreateResult('nok', '✕ FR GIÀ ASSEGNATI',
+            `${json.error}<br><br>` +
+            `<table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:0.78rem;">` +
+            `<thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text2);">FR</th>` +
+            `<th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text2);">Box</th></tr></thead>` +
+            `<tbody>${conflictRows}</tbody></table>`);
+        } else if (json.already_exists) {
+          showCreateResult('warn', '⚠ BOX GIÀ ESISTENTE', json.error);
+        } else {
+          showCreateResult('nok', '✕ ERRORE', json.error);
+        }
+      } catch(err) {
+        showCreateResult('nok', '✕ ERRORE DI RETE', 'Impossibile contattare il server. Verifica la connessione.');
+      } finally { setCreateLoading(false); }
+    }
+
+    async function printBoxLabel() {
+      if (!currentBoxSerial) return;
+      const btn = document.getElementById('print-label-btn');
+      if (!btn) return;
+      const copiesInput = document.getElementById('print-copies');
+      const copies = copiesInput ? Math.max(1, Math.min(parseInt(copiesInput.value) || 1, 50)) : 1;
+      btn.disabled = true; btn.textContent = `⏳ Stampa ${copies} copie…`;
+      try {
+        const res = await fetch('/api/outbox/print-label', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ box_serial: currentBoxSerial, copies })
+        });
+        const json = await res.json();
+        if (json.ok) { btn.textContent = `✓ ${json.copies} etichett${json.copies===1?'a':'e'} stampat${json.copies===1?'a':'e'}`; }
+        else { btn.disabled = false; btn.textContent = '🖨 Stampa etichetta box'; alert('Errore stampa:\n' + json.error); }
+      } catch(err) { btn.disabled = false; btn.textContent = '🖨 Stampa etichetta box'; alert('Errore di rete.'); }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // TAB 2: CONSULTA BOX
+    // ════════════════════════════════════════════════════════════════════════════
+    const lookupInput = document.getElementById('lookup-box-input');
+    const lookupBtn   = document.getElementById('lookup-btn');
+
+    lookupInput.addEventListener('input', () => { lookupInput.value = lookupInput.value.replace(/\D/g,'').slice(0,10); });
+    lookupInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') lookupBox(); });
+
+    function setLookupLoading(on) { lookupBtn.disabled = on; lookupBtn.classList.toggle('loading', on); }
+    function showLookupResult(type, title, message) {
+      const r = document.getElementById('lookup-result');
+      r.style.display = 'block'; r.className = `result ${type}`;
+      document.getElementById('lookup-result-header').textContent = title;
+      document.getElementById('lookup-result-body').innerHTML = message;
+    }
+
+    let lookupBoxSerial = null;
+
+    async function lookupBox() {
+      const suffix = lookupInput.value.trim();
+      if (!suffix) { lookupInput.focus(); lookupInput.style.outline='2px solid var(--nok)'; setTimeout(()=>lookupInput.style.outline='',800); return; }
+      const box_serial = 'RBOX-' + suffix;
+      setLookupLoading(true);
+      document.getElementById('lookup-result').style.display = 'none';
+      document.getElementById('box-info').style.display = 'none';
+      document.getElementById('table-wrap').style.display = 'none';
+      document.getElementById('download-btns').style.display = 'none';
+      document.getElementById('ship-section').classList.remove('visible');
+
+      try {
+        const res = await fetch(`/api/outbox/${encodeURIComponent(box_serial)}`);
+        const json = await res.json();
+
+        if (res.status === 404) { showLookupResult('nok','✕ BOX NON TROVATO', json.error); lookupBoxSerial = null; return; }
+        if (!json.ok) { showLookupResult('nok','⚠ ERRORE', json.error); lookupBoxSerial = null; return; }
+
+        lookupBoxSerial = box_serial;
+        showLookupResult('ok','✓ BOX TROVATO', `Trovati <strong>${json.count}</strong> FR associati al box <strong>${box_serial}</strong>.`);
+
+        // Info box
+        document.getElementById('info-serial').textContent = json.box.box_serial;
+        document.getElementById('info-tipo').textContent = tipoLabel(json.box.tipo);
+        document.getElementById('info-stato').innerHTML = statoBadge(json.box.stato);
+        document.getElementById('info-date').textContent = fmtDate(json.box.data_creazione);
+        document.getElementById('info-spedizione').textContent = fmtDate(json.box.data_spedizione);
+        document.getElementById('info-ddt').textContent = json.box.ddt_uscita || '—';
+        document.getElementById('info-count').textContent = json.count;
+        document.getElementById('box-info').style.display = 'flex';
+
+        // Tabella FR
+        const tbody = document.getElementById('lookup-tbody');
+        tbody.innerHTML = '';
+        const isEditable = (json.box.stato === 'creato');
+        json.items.forEach((item, i) => {
+          const tr = document.createElement('tr');
+          const actionCell = isEditable
+            ? `<td><button class="fr-del-btn" onclick="deleteFrFromBox('${item.fr}')" title="Rimuovi FR dal box">✕</button></td>`
+            : '<td></td>';
+          tr.innerHTML = `<td class="num">${i+1}</td><td class="fr">${item.fr}</td><td>${statoBadge(item.stato)}</td><td class="date">${fmtDate(item.data_inserimento)}</td><td class="date">${fmtDate(item.data_rientro)}</td>${actionCell}`;
+          tbody.appendChild(tr);
+        });
+        document.getElementById('table-wrap').style.display = 'block';
+        document.getElementById('download-btns').style.display = 'flex';
+
+        // Mostra sezione spedizione se box è in stato 'creato'
+        if (json.box.stato === 'creato') {
+          const shipLabels = {
+            'uscita_terzista': 'Spedizione verso terzista',
+            'uscita_cliente':  'Spedizione verso cliente finale',
+            'rientro_terzista':'Spedizione box di rientro',
+          };
+          const shipBtnTexts = {
+            'uscita_terzista': '🚚 Spedisci verso terzista',
+            'uscita_cliente':  '📦 Spedisci verso cliente',
+            'rientro_terzista':'↩️ Spedisci rientro',
+          };
+          document.getElementById('ship-title').textContent = shipLabels[json.box.tipo] || 'Spedizione box';
+          document.getElementById('ship-btn-text').textContent = shipBtnTexts[json.box.tipo] || '🚚 Spedisci Box';
+          document.getElementById('ship-section').classList.add('visible');
+
+          // Sezione modifica box (tipo, aggiungi FR, elimina box)
+          document.getElementById('edit-tipo-select').value = json.box.tipo;
+          document.getElementById('add-fr-input').value = '';
+          document.getElementById('edit-section').classList.add('visible');
+        } else {
+          document.getElementById('edit-section').classList.remove('visible');
+        }
+
+      } catch(err) {
+        showLookupResult('nok','✕ ERRORE DI RETE','Impossibile contattare il server.');
+        lookupBoxSerial = null;
+      } finally { setLookupLoading(false); }
+    }
+
+    // ── SPEDIZIONE BOX ──
+    async function shipBox() {
+      if (!lookupBoxSerial) return;
+      const ddt = document.getElementById('ddt-input').value.trim();
+      if (!ddt) { document.getElementById('ddt-input').focus(); document.getElementById('ddt-input').style.outline='2px solid var(--nok)'; setTimeout(()=>document.getElementById('ddt-input').style.outline='',800); return; }
+
+      const btn = document.getElementById('ship-btn');
+      btn.disabled = true; btn.classList.add('loading');
+
+      try {
+        const res = await fetch('/api/outbox/ship', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ box_serial: lookupBoxSerial, ddt })
+        });
+        const json = await res.json();
+
+        if (json.ok) {
+          showLookupResult('ok','🚚 BOX SPEDITA', `${json.message}<br><br>Aggiorna la pagina per vedere lo stato aggiornato.`);
+          document.getElementById('ship-section').classList.remove('visible');
+          // Aggiorna info
+          document.getElementById('info-stato').innerHTML = statoBadge('spedito');
+          document.getElementById('info-spedizione').textContent = fmtDate(new Date().toISOString());
+          document.getElementById('info-ddt').textContent = json.ddt;
+          // Aggiorna tabella FR
+          lookupBox();
+        } else if (json.already_shipped) {
+          showLookupResult('warn','⚠ GIÀ SPEDITA', json.error);
+        } else {
+          showLookupResult('nok','✕ ERRORE', json.error);
+        }
+      } catch(err) {
+        showLookupResult('nok','✕ ERRORE DI RETE','Impossibile contattare il server.');
+      } finally { btn.disabled = false; btn.classList.remove('loading'); }
+    }
+
+    function downloadExport(format) {
+      if (!lookupBoxSerial) return;
+      const url = format === 'pdf'
+        ? `/api/outbox/${encodeURIComponent(lookupBoxSerial)}/pdf`
+        : `/api/outbox/${encodeURIComponent(lookupBoxSerial)}/export/${format}`;
+      const ext = format === 'pdf' ? 'pdf' : format;
+      const a = document.createElement('a');
+      a.href = url; a.download = `${lookupBoxSerial}.${ext}`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }
+
+    // ── MODIFICA / ELIMINAZIONE BOX (solo box in stato 'creato') ──
+
+    // Apre il dettaglio di una box dal tab Stato (dashboard)
+    function openBoxFromDashboard(serial) {
+      switchTab('lookup');
+      const suffix = serial.replace(/^RBOX-(OUT-)?/, '');
+      lookupInput.value = suffix;
+      lookupBox();
+    }
+
+    // Rimuove un singolo FR dal box corrente
+    async function deleteFrFromBox(fr) {
+      if (!lookupBoxSerial || !fr) return;
+      if (!confirm(`Rimuovere l'FR ${fr} dal box ${lookupBoxSerial}?`)) return;
+      try {
+        const res = await fetch(`/api/outbox/${encodeURIComponent(lookupBoxSerial)}/items/${encodeURIComponent(fr)}`, { method:'DELETE' });
+        const json = await res.json();
+        if (json.ok) { lookupBox(); }   // ricarica dettaglio
+        else { alert('Errore:\n' + json.error); }
+      } catch(err) { alert('Errore di rete.'); }
+    }
+
+    // Aggiunge FR a un box esistente (riusa /api/outbox/create)
+    async function addFrToBox() {
+      if (!lookupBoxSerial) return;
+      const ta = document.getElementById('add-fr-input');
+      const frs = ta.value.split('\n').map(l => l.trim().toUpperCase()).filter(l => l.length > 0);
+      if (frs.length === 0) { ta.focus(); return; }
+      const btn = document.getElementById('add-fr-btn');
+      btn.disabled = true; btn.classList.add('loading');
+      try {
+        const res = await fetch('/api/outbox/create', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ box_serial: lookupBoxSerial, frs, tipo: document.getElementById('edit-tipo-select').value })
+        });
+        const json = await res.json();
+        if (json.ok) { ta.value = ''; lookupBox(); }
+        else { alert('Errore:\n' + json.error); }
+      } catch(err) { alert('Errore di rete.'); }
+      finally { btn.disabled = false; btn.classList.remove('loading'); }
+    }
+
+    // Cambia il tipo del box
+    async function changeBoxTipo() {
+      if (!lookupBoxSerial) return;
+      const tipo = document.getElementById('edit-tipo-select').value;
+      const btn = document.getElementById('edit-tipo-btn');
+      btn.disabled = true;
+      try {
+        const res = await fetch(`/api/outbox/${encodeURIComponent(lookupBoxSerial)}`, {
+          method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ tipo })
+        });
+        const json = await res.json();
+        if (json.ok) { lookupBox(); }
+        else { alert('Errore:\n' + json.error); }
+      } catch(err) { alert('Errore di rete.'); }
+      finally { btn.disabled = false; }
+    }
+
+    // Elimina l'intera box
+    async function deleteBox() {
+      if (!lookupBoxSerial) return;
+      if (!confirm(`Eliminare definitivamente il box ${lookupBoxSerial} e tutti i suoi FR? Operazione non reversibile.`)) return;
+      try {
+        const res = await fetch(`/api/outbox/${encodeURIComponent(lookupBoxSerial)}`, { method:'DELETE' });
+        const json = await res.json();
+        if (json.ok) { switchTab('lookup'); }   // resetta il tab
+        else { alert('Errore:\n' + json.error); }
+      } catch(err) { alert('Errore di rete.'); }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // TAB 3: RIENTRO
+    // ════════════════════════════════════════════════════════════════════════════
+    const returnBoxInput = document.getElementById('return-box-input');
+    const returnFrInput  = document.getElementById('return-fr-input');
+    const returnBtn      = document.getElementById('return-btn');
+
+    returnBoxInput.addEventListener('input', () => { returnBoxInput.value = returnBoxInput.value.replace(/\D/g,'').slice(0,10); });
+    returnFrInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) registerReturn(); });
+
+    function setReturnLoading(on) { returnBtn.disabled = on; returnBtn.classList.toggle('loading', on); }
+    function showReturnResult(type, title, message) {
+      const r = document.getElementById('return-result');
+      r.style.display = 'block'; r.className = `result ${type}`;
+      document.getElementById('return-result-header').textContent = title;
+      document.getElementById('return-result-body').innerHTML = message;
+    }
+
+    async function registerReturn() {
+      const frs = returnFrInput.value.split('\n').map(l => l.trim().toUpperCase()).filter(l => l.length > 0);
+      if (frs.length === 0) { returnFrInput.focus(); returnFrInput.style.outline='2px solid var(--nok)'; setTimeout(()=>returnFrInput.style.outline='',800); return; }
+
+      const boxSuffix = returnBoxInput.value.trim();
+      const box_rientro = boxSuffix ? 'RBOX-' + boxSuffix : null;
+
+      setReturnLoading(true);
+      document.getElementById('return-result').style.display = 'none';
+
+      try {
+        const res = await fetch('/api/outbox/return', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ frs, box_rientro })
+        });
+        const json = await res.json();
+
+        if (json.ok) {
+          let html = `<strong>Rientrati:</strong> ${json.returned_count} FR<br><strong>Warning:</strong> ${json.warnings_count}`;
+          if (box_rientro) html += `<br><strong>Box rientro:</strong> ${box_rientro}`;
+
+          if (json.returned.length > 0) {
+            html += `<br><br><table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:0.75rem;">` +
+              `<thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text2);">FR</th>` +
+              `<th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text2);">Box origine</th>` +
+              `<th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text2);">DDT</th></tr></thead><tbody>`;
+            json.returned.forEach(r => {
+              html += `<tr><td style="color:var(--ok);font-weight:600;">${r.fr}</td><td>${r.original_box}</td><td style="color:var(--text2);">${r.ddt}</td></tr>`;
+            });
+            html += `</tbody></table>`;
+          }
+
+          if (json.warnings.length > 0) {
+            html += `<br><div style="color:var(--nok);font-weight:600;margin-bottom:4px;">⚠ Warning:</div>` +
+              `<table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:0.75rem;">` +
+              `<thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text2);">FR</th>` +
+              `<th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text2);">Motivo</th></tr></thead><tbody>`;
+            json.warnings.forEach(w => {
+              html += `<tr><td style="color:var(--nok);">${w.fr}</td><td style="color:var(--text2);">${w.reason}</td></tr>`;
+            });
+            html += `</tbody></table>`;
+          }
+
+          showReturnResult(json.warnings_count > 0 ? 'warn' : 'ok',
+            json.warnings_count > 0 ? '↩️ RIENTRO REGISTRATO (con warning)' : '↩️ RIENTRO REGISTRATO', html);
+          returnFrInput.value = '';
+        } else {
+          showReturnResult('nok','✕ ERRORE', json.error);
+        }
+      } catch(err) {
+        showReturnResult('nok','✕ ERRORE DI RETE','Impossibile contattare il server.');
+      } finally { setReturnLoading(false); }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // TAB 4: DASHBOARD
+    // ════════════════════════════════════════════════════════════════════════════
+    async function loadDashboard() {
+      try {
+        const res = await fetch('/api/outbox/dashboard');
+        const json = await res.json();
+        if (!json.ok) return;
+
+        document.getElementById('sum-lavorazione').textContent = json.summary.in_lavorazione;
+        document.getElementById('sum-rientrati').textContent = json.summary.rientrati_pending;
+        document.getElementById('sum-cliente').textContent = json.summary.spediti_cliente;
+
+        const tbody = document.getElementById('dashboard-tbody');
+        tbody.innerHTML = '';
+        if (json.boxes.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">Nessuna box creata</td></tr>';
+          return;
+        }
+        json.boxes.forEach(b => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td class="fr"><a href="#" onclick="openBoxFromDashboard('${b.box_serial}');return false;" style="color:var(--accent);text-decoration:none;" title="Apri dettaglio">${b.box_serial}</a></td><td style="font-size:0.72rem;color:var(--text2);">${tipoLabel(b.tipo)}</td><td>${statoBadge(b.stato)}</td><td style="font-size:0.72rem;color:var(--text2);">${b.ddt_uscita || '—'}</td><td class="date">${fmtDate(b.data_spedizione)}</td><td style="text-align:center;">${b.fr_totali}</td><td style="text-align:center;color:${b.fr_rientrati === b.fr_totali && b.fr_totali > 0 ? 'var(--ok)' : 'var(--text2)'};">${b.fr_rientrati}/${b.fr_totali}</td>`;
+          tbody.appendChild(tr);
+        });
+      } catch(err) {
+        console.error('Dashboard error:', err);
+      }
+    }
+  </script>
+</body>
+</html>

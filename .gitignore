@@ -8,3 +8,8 @@ public/index.html.old3
 public/index.html.old4
 public/index.htmlv1.1
 public/report.html.old
+
+# Backup locali
+backups/
+*.bak_*
+*.bak
