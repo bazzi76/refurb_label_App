@@ -460,6 +460,11 @@
       if (!iso) return '—';
       return new Date(iso).toLocaleString('it-IT');
     }
+    function esitoBadge(esito) {
+      if (!esito) return '<span class="badge badge-raccolto">—</span>';
+      if (esito === 'OK') return '<span style="color:var(--ok);font-weight:600;">OK</span>';
+      return `<span style="color:var(--nok);font-weight:600;" title="${esito}">NOK</span>`;
+    }
     function statoBadge(stato) {
       const map = {
         'creato':    '<span class="badge badge-creato">CREATO</span>',
