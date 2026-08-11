@@ -221,10 +221,20 @@
         <!-- SPEDIZIONE -->
         <div class="ship-section" id="ship-section">
           <div id="ship-title" style="font-size:0.85rem;font-weight:600;color:var(--accent);margin-bottom:8px;"></div>
-          <label class="field-label" for="ddt-input">Numero DDT di uscita</label>
-          <input type="text" id="ddt-input" class="ddt-input" placeholder="es. DDT-2026-001" autocomplete="off">
+          <label class="field-label" for="ddt-input">Numero DDT di uscita (opzionale)</label>
+          <input type="text" id="ddt-input" class="ddt-input" placeholder="es. DDT-2026-001 (opzionale, inseribile anche dopo)" autocomplete="off">
           <button class="btn-primary" id="ship-btn" onclick="shipBox()" style="margin-top:0;">
             <div class="spinner"></div><span class="btn-text" id="ship-btn-text">🚚 Spedisci Box</span>
+          </button>
+        </div>
+
+        <!-- DDT EDIT (box già spedita: aggiungi/modifica DDT) -->
+        <div class="ship-section" id="ddt-edit-section">
+          <div style="font-size:0.85rem;font-weight:600;color:var(--accent);margin-bottom:8px;">📄 DDT di uscita</div>
+          <label class="field-label" for="ddt-edit-input">Numero DDT (inserisci o modifica)</label>
+          <input type="text" id="ddt-edit-input" class="ddt-input" placeholder="es. DDT-2026-001 (opzionale)" autocomplete="off">
+          <button class="btn-primary" id="ddt-edit-btn" onclick="updateDdt()" style="margin-top:0;">
+            <div class="spinner"></div><span class="btn-text">💾 Aggiorna DDT</span>
           </button>
         </div>
 
@@ -363,6 +373,7 @@
         document.getElementById('reprint-section').style.display = 'none';
         document.getElementById('ship-section').classList.remove('visible');
         document.getElementById('edit-section').classList.remove('visible');
+        document.getElementById('ddt-edit-section').classList.remove('visible');
         document.getElementById('add-fr-input').value = '';
         document.getElementById('edit-tipo-select').value = 'uscita_terzista';
         lookupInput.focus();
@@ -550,6 +561,8 @@
       document.getElementById('download-btns').style.display = 'none';
       document.getElementById('reprint-section').style.display = 'none';
       document.getElementById('ship-section').classList.remove('visible');
+      document.getElementById('edit-section').classList.remove('visible');
+      document.getElementById('ddt-edit-section').classList.remove('visible');
 
       try {
         const res = await fetch(`/api/outbox/${encodeURIComponent(box_serial)}`);
@@ -607,8 +620,12 @@
           document.getElementById('edit-tipo-select').value = json.box.tipo;
           document.getElementById('add-fr-input').value = '';
           document.getElementById('edit-section').classList.add('visible');
+          document.getElementById('ddt-edit-section').classList.remove('visible');
         } else {
           document.getElementById('edit-section').classList.remove('visible');
+          // Box già spedita/completata: mostra sezione modifica DDT
+          document.getElementById('ddt-edit-input').value = json.box.ddt_uscita || '';
+          document.getElementById('ddt-edit-section').classList.add('visible');
         }
 
       } catch(err) {
@@ -621,7 +638,6 @@
     async function shipBox() {
       if (!lookupBoxSerial) return;
       const ddt = document.getElementById('ddt-input').value.trim();
-      if (!ddt) { document.getElementById('ddt-input').focus(); document.getElementById('ddt-input').style.outline='2px solid var(--nok)'; setTimeout(()=>document.getElementById('ddt-input').style.outline='',800); return; }
 
       const btn = document.getElementById('ship-btn');
       btn.disabled = true; btn.classList.add('loading');
@@ -680,6 +696,30 @@
         if (json.ok) { btn.textContent = `✓ ${json.copies} stampat${json.copies===1?'a':'e'}`; setTimeout(()=>{ btn.disabled=false; btn.textContent=origText; }, 2000); }
         else { btn.disabled=false; btn.textContent=origText; alert('Errore stampa:\n'+json.error); }
       } catch(err) { btn.disabled=false; btn.textContent=origText; alert('Errore di rete.'); }
+    }
+
+    // Aggiorna/inserisci DDT su box già spedita
+    async function updateDdt() {
+      if (!lookupBoxSerial) return;
+      const ddt = document.getElementById('ddt-edit-input').value.trim();
+      const btn = document.getElementById('ddt-edit-btn');
+      const txtEl = btn.querySelector('.btn-text');
+      const origText = txtEl.textContent;
+      btn.disabled = true; btn.classList.add('loading');
+      try {
+        const res = await fetch(`/api/outbox/${encodeURIComponent(lookupBoxSerial)}/ddt`, {
+          method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ ddt })
+        });
+        const json = await res.json();
+        if (json.ok) {
+          document.getElementById('info-ddt').textContent = json.ddt_uscita || '—';
+          txtEl.textContent = '✓ Aggiornato';
+          setTimeout(()=>{ btn.disabled=false; btn.classList.remove('loading'); txtEl.textContent=origText; }, 1800);
+        } else {
+          btn.disabled=false; btn.classList.remove('loading'); alert('Errore:\n'+json.error);
+        }
+      } catch(err) { btn.disabled=false; btn.classList.remove('loading'); alert('Errore di rete.'); }
     }
 
     // ── MODIFICA / ELIMINAZIONE BOX (solo box in stato 'creato') ──

@@ -1399,9 +1399,7 @@ app.post('/api/outbox/ship', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Seriale box non valido. Formato atteso: RBOX-NNNN' });
   }
 
-  if (!ddt || !ddt.trim()) {
-    return res.status(400).json({ ok: false, error: 'Numero DDT obbligatorio.' });
-  }
+  const ddtNorm = ddt ? String(ddt).trim() : null;
 
   let client;
   try {
@@ -1432,7 +1430,7 @@ app.post('/api/outbox/ship', async (req, res) => {
       `UPDATE outbound_boxes
        SET stato = 'spedito', data_spedizione = NOW(), ddt_uscita = $2
        WHERE id = $1`,
-      [box.id, ddt.trim()]
+      [box.id, ddtNorm]
     );
 
     // Aggiorna tutti gli FR della box
@@ -1446,8 +1444,8 @@ app.post('/api/outbox/ship', async (req, res) => {
 
     return res.json({
       ok: true,
-      message: `Box ${box_serial} spedita. DDT: ${ddt.trim()}. ${itemsResult.rows.length} FR marcati come spediti.`,
-      ddt: ddt.trim(),
+      message: `Box ${box_serial} spedita${ddtNorm ? ' (DDT: ' + ddtNorm + ')' : ' (senza DDT)'}. ${itemsResult.rows.length} FR marcati come spediti.`,
+      ddt: ddtNorm || '',
       fr_count: itemsResult.rows.length,
       box_serial,
     });
@@ -1502,6 +1500,8 @@ app.post('/api/outbox/return', async (req, res) => {
 
     const returned = [];
     const warnings = [];
+    const affectedBoxIds = new Set();
+    const boxIdToSerial = new Map();
 
     for (const fr of cleaned) {
       // Cerca l'FR in outbound_box_items con stato 'spedito'
@@ -1568,6 +1568,20 @@ app.post('/api/outbox/return', async (req, res) => {
         original_box: item.box_serial,
         ddt: item.ddt_uscita || '—',
       });
+      affectedBoxIds.add(item.box_id);
+      boxIdToSerial.set(item.box_id, item.box_serial);
+    }
+
+    // Aggiorna stato box: se tutti gli FR di un box sono rientrati -> 'completato'
+    const completed_boxes = [];
+    for (const bid of affectedBoxIds) {
+      const upd = await client.query(
+        `UPDATE outbound_boxes SET stato = 'completato'
+         WHERE id = $1 AND stato = 'spedito'
+           AND NOT EXISTS (SELECT 1 FROM outbound_box_items WHERE box_id = $1 AND stato <> 'rientrato')`,
+        [bid]
+      );
+      if (upd.rowCount > 0) completed_boxes.push(boxIdToSerial.get(bid));
     }
 
     return res.json({
@@ -1576,6 +1590,7 @@ app.post('/api/outbox/return', async (req, res) => {
       warnings_count: warnings.length,
       returned,
       warnings,
+      completed_boxes,
       box_rientro: boxRientro,
     });
 
@@ -1745,6 +1760,52 @@ app.patch('/api/outbox/:box_serial', async (req, res) => {
 
   } catch (err) {
     console.error('Errore outbox/patch-tipo:', err.message);
+    return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// ------------------------------------------------------------------------------
+// API — PATCH /api/outbox/:box_serial/ddt
+// Imposta/modifica il DDT di uscita di un box (in qualsiasi stato).
+// Body: { ddt: "..." } — ddt può essere vuoto per rimuoverlo.
+// ------------------------------------------------------------------------------
+app.patch('/api/outbox/:box_serial/ddt', async (req, res) => {
+  const { box_serial } = req.params;
+  const { ddt } = req.body;
+
+  if (!box_serial || !/^RBOX-(OUT-)?\d+$/.test(box_serial)) {
+    return res.status(400).json({ ok: false, error: 'Seriale box non valido. Formato atteso: RBOX-NNNN' });
+  }
+  const ddtNorm = ddt ? String(ddt).trim() : null;
+
+  let client;
+  try {
+    client = await DB.connect();
+
+    const boxResult = await client.query(
+      'SELECT id, stato FROM outbound_boxes WHERE box_serial = $1',
+      [box_serial]
+    );
+    if (boxResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: `Box ${box_serial} non trovato.` });
+    }
+
+    await client.query(
+      'UPDATE outbound_boxes SET ddt_uscita = $2 WHERE id = $1',
+      [boxResult.rows[0].id, ddtNorm]
+    );
+
+    return res.json({
+      ok: true,
+      message: `DDT del box ${box_serial} aggiornato.`,
+      box_serial,
+      ddt_uscita: ddtNorm || '',
+    });
+
+  } catch (err) {
+    console.error('Errore outbox/patch-ddt:', err.message);
     return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
   } finally {
     if (client) client.release();
