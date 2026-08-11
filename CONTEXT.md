@@ -53,7 +53,7 @@ refurb_label_App/
 | Tabella | Scopo | Campi chiave |
 |---------|-------|---------------|
 | `device_tests` | Record collaudo gateway | id, sn, ext_sn, iccid, esito_test, sgw_type, data, data_stampa, **fr** |
-| `outbound_boxes` | Scatole per spedizione | id, box_serial (UNIQUE), tipo, stato, data_creazione, data_spedizione, ddt_uscita |
+| `outbound_boxes` | Scatole per spedizione | id, box_serial (UNIQUE), tipo, stato, data_creazione, data_spedizione, ddt_uscita, **archived** |
 | `outbound_box_items` | FR associati a ogni box | id, box_id (FK CASCADE), fr, stato, data_inserimento, data_rientro, **ddt_rientro** |
 | `rientri` | Audit trail rientri FR | id, fr, data_rientro, box_rientro, note, outbound_item_id (FK SET NULL), **ddt_rientro** |
 
@@ -78,6 +78,8 @@ refurb_label_App/
 | `/api/outbox/:box_serial/pdf` | GET | Genera PDF distinta box |
 | `/api/outbox/ship` | POST | Marca box come spedita (**DDT opzionale**) |
 | `/api/outbox/return` | POST | Registra rientro FR (singoli o in box) + DDT rientro; box → `completato` se tutti FR rientrati |
+| `/api/outbox/:box_serial/promote` | POST | Crea box `uscita_cliente` e sposta in blocco gli FR rientrati (da box `uscita_terzista`) |
+| `/api/outbox/:box_serial/archive` | PATCH | Archivia/disarchivia box vuota (0 FR); le archiviate non appaiono nel dashboard |
 | `/api/outbox/:box_serial` | DELETE | Elimina box (solo se `creato`) |
 | `/api/outbox/:box_serial/items/:fr` | DELETE | Rimuove un singolo FR (solo se box `creato`) |
 | `/api/outbox/:box_serial` | PATCH | Modifica tipo box (solo se `creato`) |
@@ -121,6 +123,12 @@ refurb_label_App/
 - **Link verifica da Box Management**:
   - Crea Box: chip cliccabili dei FR inseriti (preview live) → aprono pagina Stampa con auto-verifica
   - Consulta Box: codici FR nella tabella cliccabili → pagina Stampa
+- **Promote a uscita_cliente (sposta FR in blocco)**:
+  - `POST /api/outbox/:box_serial/promote`: da una box `uscita_terzista` con FR rientrati, crea una nuova box `uscita_cliente` e sposta in blocco tutti gli FR rientrati (seriale auto o fornito). La box terzista resta vuota come storico.
+  - Frontend Consulta Box: sezione "Spedisci al cliente" per box uscita_terzista con FR rientrati. Il flusso manuale di creazione/scansione FR resta invariato.
+- **Archiviazione box vuote**:
+  - `outbound_boxes.archived` (BOOLEAN default false); `PATCH /api/outbox/:box_serial/archive` archivia/disarchivia solo box vuote (0 FR)
+  - Dashboard esclude le box archiviate; lookup le trova comunque (badge ARCHIVIATA)
 - **Bug fix**: regression in `submitVerify` (body fetch usava `ext_sn` rimossa invece di `payload` → mostrato come "ERRORE DI RETE"), corretto.
 
 ## Stato attuale
@@ -142,7 +150,7 @@ refurb_label_App/
   - Probabilmente rientrano insieme a fine ciclo di lavorazione (lotti da 100 verso il terzista) o dopo un paio di lotti.
   - Serve tenerne traccia per rendicontare al cliente (stato/etichetta dedicata, flusso di uscita cliente marcato "Non Riparabile", eventuale report).
   - Da definire: come contrassegnarli (flag in `device_tests`/`outbound_box_items`? tipo box dedicato?), come gestirli nel rientro e nel dashboard, ed eventuale dicitura su etichetta/report.
-
+- **Storico FR / SN** (uso interno/statistico): vista che, dato un FR o uno SN, ricostruisce il suo percorso (box terzista, spedizioni, rientri, DDT, date) aggregando `device_tests` + `outbound_box_items` + `rientri`. Da progettare.
 - Test in produzione di `gateway_test_V2.0.sh` (script collaudo + campo FR)
 - Flusso `uscita_cliente` da testare end-to-end in produzione
 - Possibile necessità di filtro nel dashboard per tipo box o intervallo date
@@ -164,4 +172,6 @@ refurb_label_App/
 - **Reset sequenze**: dopo DELETE totale, usare `SELECT setval('seq_name', 1, false)` per ripartire da 1
 - **Script bash V2.0**: eseguito da WSL, richiede `sshpass` e `postgresql-client`; lo script si collega via SSH al gateway (utente `sgw`) e scrive nel DB remoto
 - **DDT rientro vs uscita**: DDT di uscita è a livello di box (`outbound_boxes.ddt_uscita`); DDT di rientro è a livello di FR (`outbound_box_items.ddt_rientro` + audit in `rientri.ddt_rientro`) — perché una box può rientrare parzialmente/in tempi diversi.
+- **Promote vs creazione manuale**: il promote sposta in blocco gli FR rientrati in una nuova box uscita_cliente; la creazione manuale (scan FR) resta disponibile per le spedizioni mirate con pochi pezzi.
+- **Archiviazione**: si archiviano solo box vuote (0 FR); restano rintracciabili in Consulta Box (per seriale) ma spariscono dal tab Stato.
 - **Backup DB**: dump di sicurezza in `refurb_label_App/backups/` (gitignored). Ripristino: `psql -f backups/<file>.sql`
