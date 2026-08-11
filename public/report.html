@@ -354,6 +354,21 @@
           <span class="btn-text">🔍 Genera Report</span>
         </button>
       </div>
+
+      <div style="display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; border-top:1px solid var(--border); padding-top:14px; margin-top:14px;">
+        <div style="flex:1; min-width:220px;">
+          <label for="box-input" style="display:block; font-size:0.72rem; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--text2); margin-bottom:8px;">oppure genera da box (uscita cliente)</label>
+          <div style="display:flex; border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <span style="padding:0 12px; display:flex; align-items:center; font-family:var(--mono); font-weight:600; color:var(--accent); background:var(--bg); border-right:1px solid var(--border);">RBOX-</span>
+            <input type="text" id="box-input" maxlength="10" placeholder="NNNN" autocomplete="off" inputmode="numeric"
+              style="flex:1; border:none; outline:none; background:transparent; color:var(--text); font-family:var(--mono); font-size:0.9rem; padding:10px 12px;">
+          </div>
+        </div>
+        <button class="btn-primary" id="box-btn" onclick="runBoxReport()" style="margin:0;">
+          <span class="btn-text">📦 Genera da Box</span>
+        </button>
+      </div>
+      <div class="input-hint" style="margin-top:8px;">// lista SN;ICCID dai FR di una box (es. uscita_cliente)</div>
     </div>
 
     <!-- Risultati -->
@@ -378,6 +393,7 @@
           <thead>
             <tr>
               <th>#</th>
+              <th>FR</th>
               <th>ICCID</th>
               <th>SN (MAC)</th>
               <th>Ext SN</th>
@@ -474,6 +490,7 @@
         if (row.found) {
           tr.innerHTML = `
             <td style="color:var(--text3)">${i + 1}</td>
+            <td>${row.fr || '—'}</td>
             <td>${row.iccid}</td>
             <td>${row.sn || '—'}</td>
             <td>${row.ext_sn || '—'}</td>
@@ -484,6 +501,7 @@
         } else {
           tr.innerHTML = `
             <td style="color:var(--text3)">${i + 1}</td>
+            <td>${row.fr || '—'}</td>
             <td>${row.iccid}</td>
             <td class="not-found" colspan="6">— non trovato nel database —</td>`;
         }
@@ -493,6 +511,47 @@
       document.getElementById('results-card').style.display = 'block';
     }
 
+    // ── GENERA DA BOX ──
+    const boxInput = document.getElementById('box-input');
+    if (boxInput) {
+      boxInput.addEventListener('input', () => { boxInput.value = boxInput.value.replace(/\D/g, '').slice(0, 10); });
+      boxInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runBoxReport(); });
+    }
+
+    async function runBoxReport() {
+      if (!boxInput) return;
+      const suffix = boxInput.value.trim();
+      if (!suffix) { boxInput.focus(); return; }
+      const box_serial = 'RBOX-' + suffix;
+      setLoading(true);
+      document.getElementById('results-card').style.display = 'none';
+      try {
+        const res = await fetch(`/api/outbox/${encodeURIComponent(box_serial)}/report`);
+        const json = await res.json();
+        if (!json.ok) {
+          alert(res.status === 404 ? ('Box non trovata: ' + box_serial) : ('Errore: ' + json.error));
+          return;
+        }
+        reportData = json.rows;
+        renderTable(json);
+      } catch (err) {
+        alert('Errore di rete: ' + err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // Auto-load da query param ?box=
+    (function autoBoxReport() {
+      if (!boxInput) return;
+      const params = new URLSearchParams(window.location.search);
+      const box = (params.get('box') || '').toUpperCase();
+      if (/^RBOX-(OUT-)?\d+$/.test(box)) {
+        boxInput.value = box.replace(/^RBOX-(OUT-)?/, '');
+        runBoxReport();
+      }
+    })();
+
     function download(format) {
       if (reportData.length === 0) return;
 
@@ -500,12 +559,12 @@
 
       if (format === 'xls') {
         // ── XLSX via SheetJS ──────────────────────────────────────────────────
-        const headers = ['ICCID', 'SN (MAC)', 'Ext SN', 'Tipo', 'Esito Test', 'Data Test', 'Data Stampa'];
+        const headers = ['FR', 'ICCID', 'SN (MAC)', 'Ext SN', 'Tipo', 'Esito Test', 'Data Test', 'Data Stampa'];
         const rows = reportData.map(r => r.found
-          ? [r.iccid, r.sn||'', r.ext_sn||'', r.sgw_type||'', r.esito_test||'',
+          ? [r.fr||'', r.iccid, r.sn||'', r.ext_sn||'', r.sgw_type||'', r.esito_test||'',
              r.data       ? new Date(r.data)       : '',
              r.data_stampa ? new Date(r.data_stampa) : '']
-          : [r.iccid, 'NON TROVATO', '', '', '', '', '']
+          : [r.fr||'', r.iccid, 'NON TROVATO', '', '', '', '', '']
         );
 
         const wb  = XLSX.utils.book_new();
@@ -513,6 +572,7 @@
 
         // Larghezze colonne
         ws['!cols'] = [
+          { wch: 10 }, // FR
           { wch: 24 }, // ICCID
           { wch: 20 }, // SN
           { wch: 12 }, // Ext SN
@@ -537,7 +597,7 @@
 
         // Formato date per colonne 5 e 6 (indice 0-based)
         for (let r = 1; r <= rows.length; r++) {
-          for (const c of [5, 6]) {
+          for (const c of [6, 7]) {
             const addr = XLSX.utils.encode_cell({ r, c });
             if (ws[addr] && ws[addr].v instanceof Date) {
               ws[addr].t = 'd';
@@ -552,11 +612,11 @@
       }
 
       if (format === 'csv') {
-        const header = 'ICCID,SN,Ext_SN,Tipo,Esito_Test,Data_Test,Data_Stampa';
+        const header = 'FR,ICCID,SN,Ext_SN,Tipo,Esito_Test,Data_Test,Data_Stampa';
         const lines  = reportData.map(r => r.found
-          ? [r.iccid, r.sn||'', r.ext_sn||'', r.sgw_type||'', r.esito_test||'',
+          ? [r.fr||'', r.iccid, r.sn||'', r.ext_sn||'', r.sgw_type||'', r.esito_test||'',
              fmtDate(r.data), fmtDate(r.data_stampa)].join(',')
-          : [r.iccid, 'NON TROVATO','','','','',''].join(',')
+          : [r.fr||'', r.iccid, 'NON TROVATO','','','','',''].join(',')
         );
         content  = [header, ...lines].join('\r\n');
         filename = `report_iccid_${today()}.csv`;
@@ -564,16 +624,15 @@
 
       } else {
         // TXT — colonne allineate
-        const COL = [22, 18, 10, 10, 8, 20, 20];
         const pad  = (s, n) => String(s||'').padEnd(n);
-        const header = pad('ICCID',22) + pad('SN',18) + pad('Ext_SN',10) +
+        const header = pad('FR',10) + pad('ICCID',22) + pad('SN',18) + pad('Ext_SN',10) +
                        pad('Tipo',10) + pad('Esito',8) + pad('Data_Test',20) + 'Data_Stampa';
-        const sep    = '-'.repeat(108);
+        const sep    = '-'.repeat(118);
         const lines  = reportData.map(r => r.found
-          ? pad(r.iccid,22) + pad(r.sn,18) + pad(r.ext_sn,10) +
+          ? pad(r.fr||'',10) + pad(r.iccid,22) + pad(r.sn,18) + pad(r.ext_sn,10) +
             pad(r.sgw_type,10) + pad(r.esito_test,8) +
             pad(fmtDate(r.data),20) + fmtDate(r.data_stampa)
-          : pad(r.iccid,22) + 'NON TROVATO'
+          : pad(r.fr||'',10) + pad(r.iccid,22) + 'NON TROVATO'
         );
         content  = [header, sep, ...lines].join('\r\n');
         filename = `report_iccid_${today()}.txt`;

@@ -265,6 +265,11 @@
           <button class="btn-dl green" id="reprint-btn" onclick="reprintBoxLabel()">🖨 Stampa</button>
         </div>
 
+        <!-- LISTA SN;ICCID PER CLIENTE (solo box uscita_cliente) -->
+        <div class="download-btns" id="cliente-report-section" style="display:none;">
+          <a class="btn-dl green" id="cliente-report-btn" href="#" target="_blank" style="text-decoration:none; flex:1;">📋 Lista SN;ICCID per cliente</a>
+        </div>
+
         <!-- MODIFICA BOX (visibile solo se box in stato 'creato') -->
         <div class="ship-section" id="edit-section">
           <div style="font-size:0.85rem;font-weight:600;color:var(--warn);margin-bottom:10px;">✎ Modifica box (non spedito)</div>
@@ -391,6 +396,7 @@
         document.getElementById('ship-section').classList.remove('visible');
         document.getElementById('edit-section').classList.remove('visible');
         document.getElementById('ddt-edit-section').classList.remove('visible');
+        document.getElementById('cliente-report-section').style.display = 'none';
         document.getElementById('add-fr-input').value = '';
         document.getElementById('edit-tipo-select').value = 'uscita_terzista';
         lookupInput.focus();
@@ -595,6 +601,7 @@
       document.getElementById('ship-section').classList.remove('visible');
       document.getElementById('edit-section').classList.remove('visible');
       document.getElementById('ddt-edit-section').classList.remove('visible');
+      document.getElementById('cliente-report-section').style.display = 'none';
 
       try {
         const res = await fetch(`/api/outbox/${encodeURIComponent(box_serial)}`);
@@ -634,6 +641,14 @@
         document.getElementById('table-wrap').style.display = 'block';
         document.getElementById('download-btns').style.display = 'flex';
         document.getElementById('reprint-section').style.display = 'flex';
+
+        // Lista SN;ICCID per cliente: solo box uscita_cliente
+        if (json.box.tipo === 'uscita_cliente') {
+          document.getElementById('cliente-report-btn').href = '/report.html?box=' + encodeURIComponent(box_serial);
+          document.getElementById('cliente-report-section').style.display = 'flex';
+        } else {
+          document.getElementById('cliente-report-section').style.display = 'none';
+        }
 
         // Mostra sezione spedizione se box è in stato 'creato'
         if (json.box.stato === 'creato') {

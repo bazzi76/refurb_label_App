@@ -713,7 +713,7 @@ app.post('/api/report', async (req, res) => {
 
     // Query con ANY($1) per cercare tutti gli ICCID in un colpo solo
     const result = await client.query(
-      `SELECT DISTINCT ON (iccid) iccid, sn, ext_sn, sgw_type, esito_test, data, data_stampa
+      `SELECT DISTINCT ON (iccid) iccid, sn, ext_sn, sgw_type, esito_test, data, data_stampa, fr
        FROM device_tests
        WHERE iccid = ANY($1)
        ORDER BY iccid, data DESC`,
@@ -731,6 +731,7 @@ app.post('/api/report', async (req, res) => {
       if (found[iccid]) {
         return {
           iccid,
+          fr:        found[iccid].fr,
           sn:        found[iccid].sn,
           ext_sn:    found[iccid].ext_sn,
           sgw_type:  found[iccid].sgw_type,
@@ -1886,6 +1887,74 @@ app.patch('/api/outbox/:box_serial/items/:fr/ddt-rientro', async (req, res) => {
 
   } catch (err) {
     console.error('Errore outbox/patch-ddt-rientro:', err.message);
+    return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// ------------------------------------------------------------------------------
+// API — GET /api/outbox/:box_serial/report
+// Genera la lista SN;ICCID per i FR di una box (join device_tests su fr).
+// Ordine per FR. FR senza collaudo -> found:false.
+// ------------------------------------------------------------------------------
+app.get('/api/outbox/:box_serial/report', async (req, res) => {
+  const { box_serial } = req.params;
+
+  if (!box_serial || !/^RBOX-(OUT-)?\d+$/.test(box_serial)) {
+    return res.status(400).json({ ok: false, error: 'Seriale box non valido. Formato atteso: RBOX-NNNN' });
+  }
+
+  let client;
+  try {
+    client = await DB.connect();
+
+    const boxResult = await client.query(
+      'SELECT id FROM outbound_boxes WHERE box_serial = $1',
+      [box_serial]
+    );
+    if (boxResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: `Box ${box_serial} non trovato.` });
+    }
+    const boxId = boxResult.rows[0].id;
+
+    const itemsResult = await client.query(
+      'SELECT fr FROM outbound_box_items WHERE box_id = $1 ORDER BY fr',
+      [boxId]
+    );
+    const frs = itemsResult.rows.map(r => r.fr);
+
+    if (frs.length === 0) {
+      return res.json({ ok: true, box_serial, rows: [], total: 0, found: 0 });
+    }
+
+    const testsResult = await client.query(
+      `SELECT DISTINCT ON (fr) fr, sn, ext_sn, iccid, sgw_type, esito_test, data, data_stampa
+       FROM device_tests WHERE fr = ANY($1)
+       ORDER BY fr, data DESC`,
+      [frs]
+    );
+
+    const found = {};
+    for (const r of testsResult.rows) found[r.fr] = r;
+
+    const rows = frs.map(fr => {
+      const d = found[fr];
+      if (d) {
+        return {
+          fr, found: true,
+          iccid: d.iccid, sn: d.sn, ext_sn: d.ext_sn,
+          sgw_type: d.sgw_type, esito_test: d.esito_test,
+          data: d.data, data_stampa: d.data_stampa,
+        };
+      }
+      return { fr, found: false };
+    });
+
+    return res.json({ ok: true, box_serial, rows, total: frs.length, found: testsResult.rows.length });
+
+  } catch (err) {
+    console.error('Errore outbox/report:', err.message);
     return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
   } finally {
     if (client) client.release();
