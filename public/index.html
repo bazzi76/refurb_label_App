@@ -516,6 +516,18 @@
       </div>
       <p class="hint">// ultime 4 cifre del seriale (es. 1234 → 80001234)</p>
 
+      <label class="field-label" for="fr-input" style="margin-top:1rem;">oppure codice FR</label>
+      <div class="input-wrap">
+        <div class="prefix">FR</div>
+        <input type="text"
+               id="fr-input"
+               maxlength="5"
+               placeholder="XXXXX"
+               autocomplete="off"
+               inputmode="numeric">
+      </div>
+      <p class="hint">// codice FR a 5 cifre (es. 62676 → FR62676). La ricerca FR ha priorita.</p>
+
       <button class="btn-verify" id="verify-btn" onclick="submitVerify()">
         <div class="spinner"></div>
         <span class="btn-text">🔍&nbsp; Verifica Seriale</span>
@@ -554,6 +566,7 @@
           <table class="data-table" id="data-table" style="display:none">
             <tr><td>SN</td>        <td id="dt-sn"></td></tr>
             <tr><td>Ext SN</td>    <td id="dt-extsn"></td></tr>
+            <tr><td>FR</td>        <td id="dt-fr"></td></tr>
             <tr><td>ICCID</td>     <td id="dt-iccid"></td></tr>
             <tr><td>Esito</td>     <td id="dt-esito"></td></tr>
             <tr><td>Tipo</td>      <td id="dt-tipo"></td></tr>
@@ -580,6 +593,7 @@
 
   <script>
     const input      = document.getElementById('sn-input');
+    const frInput    = document.getElementById('fr-input');
     const verifyBtn  = document.getElementById('verify-btn');
     const printBtn   = document.getElementById('print-btn');
     const btnActions = document.getElementById('btn-actions');
@@ -597,12 +611,20 @@
 
     input.addEventListener('input', () => {
       input.value = input.value.replace(/\D/g, '').slice(0, 4);
-      // Se si modifica il seriale dopo una verifica, reset UI
+      if (input.value) frInput.value = '';
       if (currentExtSn && input.value !== currentExtSn.slice(4)) {
         resetAfterInput();
       }
     });
     input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitVerify();
+    });
+    frInput.addEventListener('input', () => {
+      frInput.value = frInput.value.toUpperCase().replace(/[^0-9A-Z]/g, '').replace(/^FR/, '').replace(/[^0-9]/g, '').slice(0, 5);
+      if (frInput.value) input.value = '';
+      if (currentExtSn) resetAfterInput();
+    });
+    frInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') submitVerify();
     });
 
@@ -644,6 +666,7 @@
       if (data) {
         document.getElementById('dt-sn').textContent    = data.sn         || '—';
         document.getElementById('dt-extsn').textContent = data.ext_sn     || '—';
+        document.getElementById('dt-fr').textContent   = data.fr         || 'N/A';
         document.getElementById('dt-iccid').textContent = data.iccid      || '—';
         document.getElementById('dt-esito').textContent = data.esito_test || '—';
         document.getElementById('dt-tipo').textContent  = data.sgw_type   || '—';
@@ -682,14 +705,21 @@
     // ── STEP 1: VERIFICA ────────────────────────────────────────────────────────
     async function submitVerify() {
       const suffix = input.value.trim();
-      if (suffix.length !== 4) {
-        input.focus();
-        input.style.outline = '2px solid var(--nok)';
-        setTimeout(() => input.style.outline = '', 800);
+      const frSuffix = frInput.value.trim();
+
+      // FR ha priorita se presente (5 cifre), altrimenti SN (4 cifre)
+      let payload;
+      if (frSuffix.length === 5) {
+        payload = { fr: 'FR' + frSuffix };
+      } else if (suffix.length === 4) {
+        payload = { ext_sn: '8000' + suffix };
+      } else {
+        // Nessun input valido
+        if (suffix) { frInput.focus(); frInput.style.outline='2px solid var(--nok)'; setTimeout(()=>frInput.style.outline='',800); }
+        else { input.focus(); input.style.outline='2px solid var(--nok)'; setTimeout(()=>input.style.outline='',800); }
         return;
       }
 
-      const ext_sn = '8000' + suffix;
       setVerifyLoading(true);
       box.style.display = 'none';
       printBtn.style.display = 'none';
@@ -715,20 +745,19 @@
         }
 
         const data = json.data;
-        currentExtSn = ext_sn;
+        currentExtSn = data.ext_sn;
+        const displayId = data.fr ? `${data.ext_sn} (FR ${data.fr})` : data.ext_sn;
 
         if (data.esito_test === 'OK') {
           showResult('ok', '✓', 'VERIFICA OK',
-            `Gateway ${ext_sn} trovato e collaudo superato.`, data);
-          // Mostra il pulsante stampa etichetta
+            `Gateway ${displayId} trovato e collaudo superato.`, data);
           printBtn.style.display = 'flex';
           printBtn.disabled = false;
           printBtn.classList.remove('loading');
           printBtn.querySelector('.btn-text').textContent = '🖨\u00a0 Stampa Etichetta';
         } else {
           showResult('nok', '✕', 'TEST NON SUPERATO',
-            `Il collaudo per ${ext_sn} non è andato a buon fine (${data.esito_test}).`, data);
-          // Pulsante stampa etichetta nascosto per test NOK
+            `Il collaudo per ${displayId} non è andato a buon fine (${data.esito_test}).`, data);
           printBtn.style.display = 'none';
         }
 
@@ -872,6 +901,20 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeDialog();
     });
+
+    // Auto-verifica da query param (?fr= o ?sn=) — usato dai link "verifica FR" in Box Management
+    (function autoVerifyFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const fr = (params.get('fr') || '').toUpperCase();
+      const sn = params.get('sn') || '';
+      if (fr && /^FR\d{5}$/.test(fr)) {
+        frInput.value = fr.replace(/^FR/, '');
+        submitVerify();
+      } else if (sn && /^8000\d{4}$/.test(sn)) {
+        input.value = sn.slice(4);
+        submitVerify();
+      }
+    })();
   </script>
 </body>
 </html>

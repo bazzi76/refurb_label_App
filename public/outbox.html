@@ -100,6 +100,12 @@
     .fr-del-btn:hover { background:rgba(248,81,73,0.25); border-color:var(--nok); }
     .fr-edit-btn { width:24px; height:24px; border-radius:5px; border:1px solid rgba(46,168,224,0.35); background:rgba(46,168,224,0.12); color:var(--accent); font-size:0.72rem; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; transition:background 0.15s,border-color 0.15s; vertical-align:middle; margin-left:4px; }
     .fr-edit-btn:hover { background:rgba(46,168,224,0.25); border-color:var(--accent); }
+    .fr-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+    .fr-chip { display:inline-flex; align-items:center; gap:4px; padding:5px 12px; background:var(--bg3); border:1px solid var(--border); border-radius:16px; font-family:var(--mono); font-size:0.75rem; font-weight:600; color:var(--accent); text-decoration:none; transition:border-color 0.15s,background 0.15s; }
+    .fr-chip:hover { border-color:var(--accent); background:rgba(46,168,224,0.12); }
+    .fr-chip::before { content:'🔍'; font-size:0.62rem; margin-right:2px; }
+    table.data a.fr-link { color:var(--accent); text-decoration:none; font-weight:600; }
+    table.data a.fr-link:hover { text-decoration:underline; }
     .summary-cards { display:flex; gap:12px; flex-wrap:wrap; }
     .summary-card { flex:1; min-width:140px; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:1.25rem; text-align:center; }
     .summary-card .num { font-size:2rem; font-weight:700; font-family:var(--mono); }
@@ -172,6 +178,9 @@
             </span>
           </div>
         </div>
+
+        <div class="fr-chips" id="fr-chips" style="display:none;"></div>
+        <p class="hint" id="fr-chips-hint" style="display:none;">// clicca un FR per aprirne la verifica nella pagina Stampa</p>
 
         <button class="btn-primary" id="create-btn" onclick="createBox()">
           <div class="spinner"></div><span class="btn-text">📦 Salva Box</span>
@@ -439,6 +448,20 @@
       frCount.classList.remove('full','over');
       if (lines.length === max) frCount.classList.add('full');
       if (lines.length > max) frCount.classList.add('over');
+
+      // Render chip cliccabili per i FR validi (aprono la pagina Stampa con auto-verifica)
+      const chipsDiv = document.getElementById('fr-chips');
+      const chipsHint = document.getElementById('fr-chips-hint');
+      const valid = lines.filter(l => /^FR\d{5}$/.test(l));
+      if (valid.length > 0) {
+        chipsDiv.innerHTML = valid.map(fr => `<a class="fr-chip" href="/?fr=${encodeURIComponent(fr)}" target="_blank" title="Verifica ${fr} nella pagina Stampa">${fr}</a>`).join('');
+        chipsDiv.style.display = 'flex';
+        if (chipsHint) chipsHint.style.display = 'block';
+      } else {
+        chipsDiv.innerHTML = '';
+        chipsDiv.style.display = 'none';
+        if (chipsHint) chipsHint.style.display = 'none';
+      }
     });
     frListInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.ctrlKey) createBox(); });
 
@@ -605,7 +628,7 @@
           const actionCell = isEditable
             ? `<td><button class="fr-del-btn" onclick="deleteFrFromBox('${item.fr}')" title="Rimuovi FR dal box">✕</button></td>`
             : '<td></td>';
-          tr.innerHTML = `<td class="num">${i+1}</td><td class="fr">${item.fr}</td><td>${statoBadge(item.stato)}</td><td class="date">${fmtDate(item.data_inserimento)}</td><td class="date">${fmtDate(item.data_rientro)}</td>${ddtRientroCell}${actionCell}`;
+          tr.innerHTML = `<td class="num">${i+1}</td><td class="fr"><a class="fr-link" href="/?fr=${encodeURIComponent(item.fr)}" target="_blank" title="Verifica ${item.fr} nella pagina Stampa">${item.fr}</a></td><td>${statoBadge(item.stato)}</td><td class="date">${fmtDate(item.data_inserimento)}</td><td class="date">${fmtDate(item.data_rientro)}</td>${ddtRientroCell}${actionCell}`;
           tbody.appendChild(tr);
         });
         document.getElementById('table-wrap').style.display = 'block';

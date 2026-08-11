@@ -350,6 +350,7 @@ function buildCollaudoHTML(row) {
       <table class="data">
         <tr><td>SN (MAC eth0)</td><td>${row.sn       || '—'}</td></tr>
         <tr><td>Ext SN</td>       <td>${row.ext_sn   || '—'}</td></tr>
+        <tr><td>FR</td>           <td>${row.fr       || 'N/A'}</td></tr>
         <tr><td>ICCID SIM</td>    <td>${row.iccid    || '—'}</td></tr>
         <tr><td>Tipo gateway</td> <td>${row.sgw_type || '—'}</td></tr>
       </table>
@@ -387,7 +388,7 @@ function buildCollaudoHTML(row) {
 
   <div class="footer">
     <span>Gruppo Sim Tel — Sistema Refurb Gateway</span>
-    <span>${row.ext_sn} · ${row.iccid}</span>
+    <span>${row.ext_sn} · ${row.fr || 'N/A'} · ${row.iccid}</span>
     <span>Documento valido se presente firma di Responsabile Qualità</span>
   </div>
 
@@ -443,10 +444,20 @@ function printCollaudo(htmlContent) {
 // Interroga il DB e restituisce i dati del dispositivo SENZA stampare nulla
 // ------------------------------------------------------------------------------
 app.post('/api/verify', async (req, res) => {
-  const { ext_sn } = req.body;
+  const { ext_sn, fr } = req.body;
 
-  if (!ext_sn || !/^8000\d{4}$/.test(ext_sn)) {
-    return res.status(400).json({ ok: false, error: 'Seriale non valido. Formato atteso: 8000XXXX' });
+  // Ricerca per FR (FR + 5 cifre) oppure per ext_sn (8000XXXX)
+  let searchBy = null, searchVal = null, label = '';
+  if (fr && /^FR\d{5}$/.test(String(fr).trim().toUpperCase())) {
+    searchBy = 'fr';
+    searchVal = String(fr).trim().toUpperCase();
+    label = `FR ${searchVal}`;
+  } else if (ext_sn && /^8000\d{4}$/.test(ext_sn)) {
+    searchBy = 'ext_sn';
+    searchVal = ext_sn;
+    label = `seriale ${ext_sn}`;
+  } else {
+    return res.status(400).json({ ok: false, error: 'Seriale o FR non valido. Formati attesi: 8000XXXX oppure FRXXXXX' });
   }
 
   let client;
@@ -454,16 +465,16 @@ app.post('/api/verify', async (req, res) => {
     client = await DB.connect();
 
     const result = await client.query(
-      `SELECT id, sn, ext_sn, iccid, esito_test, sgw_type, data, data_stampa
+      `SELECT id, sn, ext_sn, iccid, esito_test, sgw_type, data, data_stampa, fr
        FROM device_tests
-       WHERE ext_sn = $1
+       WHERE ${searchBy} = $1
        ORDER BY data DESC
        LIMIT 1`,
-      [ext_sn]
+      [searchVal]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ ok: false, error: `Nessun record trovato per il seriale ${ext_sn}` });
+      return res.status(404).json({ ok: false, error: `Nessun record trovato per ${label}` });
     }
 
     const row = result.rows[0];
@@ -495,7 +506,7 @@ app.post('/api/print', async (req, res) => {
 
     // Cerca il record più recente per questo ext_sn
     const result = await client.query(
-      `SELECT id, sn, ext_sn, iccid, esito_test, sgw_type, data, data_stampa
+      `SELECT id, sn, ext_sn, iccid, esito_test, sgw_type, data, data_stampa, fr
        FROM device_tests
        WHERE ext_sn = $1
        ORDER BY data DESC
@@ -574,7 +585,7 @@ app.post('/api/print-collaudo', async (req, res) => {
     client = await DB.connect();
 
     const result = await client.query(
-      `SELECT id, sn, ext_sn, iccid, esito_test, sgw_type, data, data_stampa
+      `SELECT id, sn, ext_sn, iccid, esito_test, sgw_type, data, data_stampa, fr
        FROM device_tests
        WHERE ext_sn = $1
        ORDER BY data DESC
@@ -620,7 +631,7 @@ app.get('/api/pdf-collaudo/:ext_sn', async (req, res) => {
     client = await DB.connect();
 
     const result = await client.query(
-      `SELECT id, sn, ext_sn, iccid, esito_test, sgw_type, data, data_stampa
+      `SELECT id, sn, ext_sn, iccid, esito_test, sgw_type, data, data_stampa, fr
        FROM device_tests
        WHERE ext_sn = $1
        ORDER BY data DESC
