@@ -98,6 +98,8 @@
     .ship-section .ddt-input:focus { border-color:var(--accent); }
     .fr-del-btn { width:26px; height:26px; border-radius:5px; border:1px solid rgba(248,81,73,0.35); background:var(--nok-dim); color:var(--nok); font-size:0.8rem; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 0.15s,border-color 0.15s; }
     .fr-del-btn:hover { background:rgba(248,81,73,0.25); border-color:var(--nok); }
+    .fr-edit-btn { width:24px; height:24px; border-radius:5px; border:1px solid rgba(46,168,224,0.35); background:rgba(46,168,224,0.12); color:var(--accent); font-size:0.72rem; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; transition:background 0.15s,border-color 0.15s; vertical-align:middle; margin-left:4px; }
+    .fr-edit-btn:hover { background:rgba(46,168,224,0.25); border-color:var(--accent); }
     .summary-cards { display:flex; gap:12px; flex-wrap:wrap; }
     .summary-card { flex:1; min-width:140px; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:1.25rem; text-align:center; }
     .summary-card .num { font-size:2rem; font-weight:700; font-family:var(--mono); }
@@ -213,7 +215,7 @@
 
         <div class="table-wrap" id="table-wrap" style="display:none;">
           <table class="data">
-            <thead><tr><th>#</th><th>Codice FR</th><th>Stato</th><th>Data inserimento</th><th>Data rientro</th><th>Azioni</th></tr></thead>
+            <thead><tr><th>#</th><th>Codice FR</th><th>Stato</th><th>Data inserimento</th><th>Data rientro</th><th>DDT rientro</th><th>Azioni</th></tr></thead>
             <tbody id="lookup-tbody"></tbody>
           </table>
         </div>
@@ -291,6 +293,12 @@
           <input type="text" id="return-box-input" maxlength="10" placeholder="NNNN (oppure vuoto)" autocomplete="off" inputmode="numeric">
         </div>
         <p class="hint">// se i FR rientrano in una box, inserisci il seriale. Altrimenti lascia vuoto.</p>
+
+        <div style="margin-top:1.25rem;">
+          <label class="field-label" for="return-ddt-input">DDT di rientro (opzionale)</label>
+          <input type="text" id="return-ddt-input" placeholder="es. DDT-2026-001 (opzionale)" autocomplete="off"
+            style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.9rem;padding:10px 14px;outline:none;">
+        </div>
 
         <div style="margin-top:1.25rem;">
           <label class="field-label" for="return-fr-input">Codici FR rientrati (uno per riga)</label>
@@ -380,6 +388,7 @@
       } else if (tab === 'return') {
         returnBoxInput.value = '';
         returnFrInput.value = '';
+        document.getElementById('return-ddt-input').value = '';
         document.getElementById('return-result').style.display = 'none';
         returnBoxInput.focus();
       }
@@ -590,10 +599,13 @@
         const isEditable = (json.box.stato === 'creato');
         json.items.forEach((item, i) => {
           const tr = document.createElement('tr');
+          const ddtRientroCell = (item.stato === 'rientrato')
+            ? `<td style="white-space:nowrap;"><span style="font-family:var(--mono);font-size:0.72rem;">${item.ddt_rientro || '—'}</span> <button class="fr-edit-btn" onclick="editDdtRientro('${item.fr}')" title="Modifica DDT rientro">✎</button></td>`
+            : '<td></td>';
           const actionCell = isEditable
             ? `<td><button class="fr-del-btn" onclick="deleteFrFromBox('${item.fr}')" title="Rimuovi FR dal box">✕</button></td>`
             : '<td></td>';
-          tr.innerHTML = `<td class="num">${i+1}</td><td class="fr">${item.fr}</td><td>${statoBadge(item.stato)}</td><td class="date">${fmtDate(item.data_inserimento)}</td><td class="date">${fmtDate(item.data_rientro)}</td>${actionCell}`;
+          tr.innerHTML = `<td class="num">${i+1}</td><td class="fr">${item.fr}</td><td>${statoBadge(item.stato)}</td><td class="date">${fmtDate(item.data_inserimento)}</td><td class="date">${fmtDate(item.data_rientro)}</td>${ddtRientroCell}${actionCell}`;
           tbody.appendChild(tr);
         });
         document.getElementById('table-wrap').style.display = 'block';
@@ -744,6 +756,26 @@
       } catch(err) { alert('Errore di rete.'); }
     }
 
+    // Modifica DDT di rientro di un singolo FR
+    async function editDdtRientro(fr) {
+      if (!lookupBoxSerial || !fr) return;
+      const cur = document.querySelector(`button.fr-edit-btn[onclick="editDdtRientro('${fr}')"]`);
+      const curText = cur ? cur.previousElementSibling : null;
+      const def = curText ? curText.textContent.replace('—','') : '';
+      const newVal = prompt(`DDT di rientro per ${fr} (box ${lookupBoxSerial}):`, def);
+      if (newVal === null) return;  // annullato
+      const ddt = newVal.trim();
+      try {
+        const res = await fetch(`/api/outbox/${encodeURIComponent(lookupBoxSerial)}/items/${encodeURIComponent(fr)}/ddt-rientro`, {
+          method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ ddt_rientro: ddt })
+        });
+        const json = await res.json();
+        if (json.ok) { lookupBox(); }
+        else { alert('Errore:\n' + json.error); }
+      } catch(err) { alert('Errore di rete.'); }
+    }
+
     // Aggiunge FR a un box esistente (riusa /api/outbox/create)
     async function addFrToBox() {
       if (!lookupBoxSerial) return;
@@ -818,6 +850,7 @@
 
       const boxSuffix = returnBoxInput.value.trim();
       const box_rientro = boxSuffix ? 'RBOX-' + boxSuffix : null;
+      const ddt_rientro = document.getElementById('return-ddt-input').value.trim();
 
       setReturnLoading(true);
       document.getElementById('return-result').style.display = 'none';
@@ -825,7 +858,7 @@
       try {
         const res = await fetch('/api/outbox/return', {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ frs, box_rientro })
+          body: JSON.stringify({ frs, box_rientro, ddt_rientro: ddt_rientro || null })
         });
         const json = await res.json();
 
@@ -837,9 +870,10 @@
             html += `<br><br><table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:0.75rem;">` +
               `<thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text2);">FR</th>` +
               `<th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text2);">Box origine</th>` +
-              `<th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text2);">DDT</th></tr></thead><tbody>`;
+              `<th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text2);">DDT uscita</th>` +
+              `<th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border);color:var(--text2);">DDT rientro</th></tr></thead><tbody>`;
             json.returned.forEach(r => {
-              html += `<tr><td style="color:var(--ok);font-weight:600;">${r.fr}</td><td>${r.original_box}</td><td style="color:var(--text2);">${r.ddt}</td></tr>`;
+              html += `<tr><td style="color:var(--ok);font-weight:600;">${r.fr}</td><td>${r.original_box}</td><td style="color:var(--text2);">${r.ddt}</td><td style="color:var(--text2);">${r.ddt_rientro || '—'}</td></tr>`;
             });
             html += `</tbody></table>`;
           }

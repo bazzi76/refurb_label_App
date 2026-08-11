@@ -1078,7 +1078,7 @@ app.get('/api/outbox/:box_serial', async (req, res) => {
     const box = boxResult.rows[0];
 
     const itemsResult = await client.query(
-      `SELECT id, fr, stato, data_inserimento, data_rientro
+      `SELECT id, fr, stato, data_inserimento, data_rientro, ddt_rientro
        FROM outbound_box_items
        WHERE box_id = $1
        ORDER BY id ASC`,
@@ -1101,6 +1101,7 @@ app.get('/api/outbox/:box_serial', async (req, res) => {
         stato: r.stato,
         data_inserimento: r.data_inserimento,
         data_rientro: r.data_rientro,
+        ddt_rientro: r.ddt_rientro,
       })),
       count: itemsResult.rows.length,
     });
@@ -1464,7 +1465,7 @@ app.post('/api/outbox/ship', async (req, res) => {
 // Registra il rientro di uno o più FR dalla lavorazione terzista
 // ------------------------------------------------------------------------------
 app.post('/api/outbox/return', async (req, res) => {
-  const { frs, box_rientro } = req.body;
+  const { frs, box_rientro, ddt_rientro } = req.body;
 
   if (!Array.isArray(frs) || frs.length === 0) {
     return res.status(400).json({ ok: false, error: 'Lista FR mancante o vuota.' });
@@ -1493,6 +1494,7 @@ app.post('/api/outbox/return', async (req, res) => {
   if (boxRientro && !/^RBOX-(OUT-)?\d+$/.test(boxRientro)) {
     return res.status(400).json({ ok: false, error: 'Seriale box rientro non valido. Formato atteso: RBOX-NNNN' });
   }
+  const ddtRientro = ddt_rientro ? String(ddt_rientro).trim() : null;
 
   let client;
   try {
@@ -1551,22 +1553,23 @@ app.post('/api/outbox/return', async (req, res) => {
 
       const item = itemResult.rows[0];
 
-      // Aggiorna lo stato dell'FR
+      // Aggiorna lo stato dell'FR + DDT di rientro
       await client.query(
-        `UPDATE outbound_box_items SET stato = 'rientrato', data_rientro = NOW() WHERE id = $1`,
-        [item.id]
+        `UPDATE outbound_box_items SET stato = 'rientrato', data_rientro = NOW(), ddt_rientro = $2 WHERE id = $1`,
+        [item.id, ddtRientro]
       );
 
-      // Inserisci record di audit in rientri
+      // Inserisci record di audit in rientri (con DDT di rientro)
       await client.query(
-        `INSERT INTO rientri (fr, box_rientro, outbound_item_id) VALUES ($1, $2, $3)`,
-        [fr, boxRientro, item.id]
+        `INSERT INTO rientri (fr, box_rientro, outbound_item_id, ddt_rientro) VALUES ($1, $2, $3, $4)`,
+        [fr, boxRientro, item.id, ddtRientro]
       );
 
       returned.push({
         fr,
         original_box: item.box_serial,
         ddt: item.ddt_uscita || '—',
+        ddt_rientro: ddtRientro || '',
       });
       affectedBoxIds.add(item.box_id);
       boxIdToSerial.set(item.box_id, item.box_serial);
@@ -1806,6 +1809,72 @@ app.patch('/api/outbox/:box_serial/ddt', async (req, res) => {
 
   } catch (err) {
     console.error('Errore outbox/patch-ddt:', err.message);
+    return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// ------------------------------------------------------------------------------
+// API — PATCH /api/outbox/:box_serial/items/:fr/ddt-rientro
+// Imposta/modifica il DDT di rientro di un singolo FR (FR deve essere rientrato).
+// Body: { ddt_rientro: "..." } — puo essere vuoto per rimuoverlo.
+// ------------------------------------------------------------------------------
+app.patch('/api/outbox/:box_serial/items/:fr/ddt-rientro', async (req, res) => {
+  const { box_serial, fr } = req.params;
+  const { ddt_rientro } = req.body;
+  const frNorm = String(fr).trim().toUpperCase();
+
+  if (!box_serial || !/^RBOX-(OUT-)?\d+$/.test(box_serial)) {
+    return res.status(400).json({ ok: false, error: 'Seriale box non valido. Formato atteso: RBOX-NNNN' });
+  }
+  if (!frNorm || !/^FR\d{5}$/.test(frNorm)) {
+    return res.status(400).json({ ok: false, error: 'FR non valido. Formato atteso: FR + 5 cifre' });
+  }
+  const ddtNorm = ddt_rientro ? String(ddt_rientro).trim() : null;
+
+  let client;
+  try {
+    client = await DB.connect();
+
+    const itemResult = await client.query(
+      `SELECT i.id, i.stato FROM outbound_box_items i
+       JOIN outbound_boxes b ON i.box_id = b.id
+       WHERE b.box_serial = $1 AND i.fr = $2`,
+      [box_serial, frNorm]
+    );
+    if (itemResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: `FR ${frNorm} non trovato nel box ${box_serial}.` });
+    }
+    const item = itemResult.rows[0];
+    if (item.stato !== 'rientrato') {
+      return res.status(409).json({ ok: false, error: `FR ${frNorm} non e ancora rientrato (stato: ${item.stato}).` });
+    }
+
+    // Aggiorna il valore corrente sull'item
+    await client.query(
+      'UPDATE outbound_box_items SET ddt_rientro = $2 WHERE id = $1',
+      [item.id, ddtNorm]
+    );
+
+    // Aggiorna anche l'ultimo record di audit in rientri (se presente)
+    await client.query(
+      `UPDATE rientri SET ddt_rientro = $2
+       WHERE outbound_item_id = $1
+         AND id = (SELECT id FROM rientri WHERE outbound_item_id = $1 ORDER BY id DESC LIMIT 1)`,
+      [item.id, ddtNorm]
+    );
+
+    return res.json({
+      ok: true,
+      message: `DDT di rientro di ${frNorm} aggiornato.`,
+      box_serial,
+      fr: frNorm,
+      ddt_rientro: ddtNorm || '',
+    });
+
+  } catch (err) {
+    console.error('Errore outbox/patch-ddt-rientro:', err.message);
     return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
   } finally {
     if (client) client.release();
