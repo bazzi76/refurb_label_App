@@ -137,6 +137,12 @@ refurb_label_App/
 
 ## TODO / questioni aperte
 
+- **FR "Non Riparabile"** (futura gestione): alcuni gateway non conviene ripararli e vanno rispediti al cliente con dicitura "Non Riparabile".
+  - Non avranno un risultato di `gateway_test_V2.0.sh` (nessun collaudo in `device_tests`).
+  - Probabilmente rientrano insieme a fine ciclo di lavorazione (lotti da 100 verso il terzista) o dopo un paio di lotti.
+  - Serve tenerne traccia per rendicontare al cliente (stato/etichetta dedicata, flusso di uscita cliente marcato "Non Riparabile", eventuale report).
+  - Da definire: come contrassegnarli (flag in `device_tests`/`outbound_box_items`? tipo box dedicato?), come gestirli nel rientro e nel dashboard, ed eventuale dicitura su etichetta/report.
+
 - Test in produzione di `gateway_test_V2.0.sh` (script collaudo + campo FR)
 - Flusso `uscita_cliente` da testare end-to-end in produzione
 - Possibile necessità di filtro nel dashboard per tipo box o intervallo date
