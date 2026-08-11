@@ -64,7 +64,7 @@ refurb_label_App/
 
 | Endpoint | Metodo | Funzione |
 |----------|--------|----------|
-| `/api/verify` | POST | Verifica gateway per **ext_sn (8000XXXX) o FR (FRXXXXX)** |
+| `/api/verify` | POST | Verifica gateway per **ext_sn (8000XXXX) o FR (FRXXXXX)**; restituisce anche `box` (assegnazione FR o null = deposito) |
 | `/api/print` | POST | Stampa etichetta ZPL su Zebra (3 copie) |
 | `/api/print-collaudo` | POST | Stampa foglio collaudo A4 via CUPS |
 | `/api/pdf-collaudo/:ext_sn` | GET | Genera e scarica PDF collaudo |
@@ -85,6 +85,11 @@ refurb_label_App/
 | `/api/outbox/:box_serial` | PATCH | Modifica tipo box (solo se `creato`) |
 | `/api/outbox/:box_serial/ddt` | PATCH | Imposta/modifica DDT di uscita (qualsiasi stato) |
 | `/api/outbox/:box_serial/items/:fr/ddt-rientro` | PATCH | Imposta/modifica DDT di rientro di un FR (FR deve essere `rientrato`) |
+| `/api/deposito` | GET | Lista FR in deposito (in `device_tests` con fr, non assegnati ad alcuna box) |
+| `/api/outbox/assignable-boxes` | GET | Box `creato` (non archiviate) con capienza (count < 24) |
+| `/api/outbox/assign` | POST | Assegna/sposta un FR in una box creato con capienza (deposito→box o box→box); blocca se `spedito` |
+| `/api/outbox/assign-new` | POST | Crea nuova box (next serial, tipo) e ci assegna/sposta l'FR |
+| `/api/outbox/create-empty` | POST | Crea una box vuota (next serial, tipo) |
 
 ## Cosa è stato fatto
 
@@ -129,6 +134,12 @@ refurb_label_App/
 - **Archiviazione box vuote**:
   - `outbound_boxes.archived` (BOOLEAN default false); `PATCH /api/outbox/:box_serial/archive` archivia/disarchivia solo box vuote (0 FR)
   - Dashboard esclude le box archiviate; lookup le trova comunque (badge ARCHIVIATA)
+- **FR fuori scatola (deposito) + assegnazione**:
+  - Un FR è "in deposito" se è in `device_tests` (con fr) ma non ha riga in `outbound_box_items` (es. dopo cancellazione box). Endpoint `/api/deposito` li elenca.
+  - `/api/verify` restituisce `box` (assegnazione corrente o null).
+  - `POST /api/outbox/assign` (FR → box creato con capienza), `POST /api/outbox/assign-new` (crea box + assegna), `POST /api/outbox/create-empty` (box vuota).
+  - index.html Verifica & Stampa: pannello "Gestione box" con stato (in box / in deposito), dropdown box con capienza + Assegna, oppure Crea nuova box + Crea e assegna.
+  - outbox.html: nuovo tab **Deposito** con lista FR fuori scatola, box destinazione + Assegna per riga, Crea box vuota.
 - **Bug fix**: regression in `submitVerify` (body fetch usava `ext_sn` rimossa invece di `payload` → mostrato come "ERRORE DI RETE"), corretto.
 
 ## Stato attuale
@@ -140,6 +151,7 @@ refurb_label_App/
 - ✅ DDT di rientro per singolo FR (inseribile e modificabile)
 - ✅ Ricerca verifica per SN o FR; FR in riepilogo e report (N/A per record storici)
 - ✅ Link "verifica FR" da Crea Box (chip) e Consulta Box (tabella) → pagina Stampa
+- ✅ Gestione FR fuori scatola (deposito): assegnazione/spostamento da Verifica & Stampa e da tab Deposito
 - ✅ Servizio systemd attivo e funzionante
 - ✅ Tutte le modifiche committate e pushate su `origin/main`
 
