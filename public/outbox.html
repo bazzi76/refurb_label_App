@@ -234,6 +234,16 @@
           <button class="btn-dl" onclick="downloadExport('txt')">⬇ TXT</button>
         </div>
 
+        <!-- RISTAMPA ETICHETTA BOX (visibile dopo consultazione) -->
+        <div class="download-btns" id="reprint-section" style="display:none;">
+          <span style="flex:none;align-self:center;color:var(--text2);font-size:0.78rem;font-weight:600;padding:0 8px;">🖨 Ristampa etichetta box:</span>
+          <span style="font-size:0.72rem;color:var(--text3);display:flex;align-items:center;gap:6px;flex:none;">Copie:
+            <input type="text" id="reprint-copies" value="1" maxlength="2" inputmode="numeric"
+              style="width:42px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono);font-size:0.8rem;padding:4px 6px;text-align:center;outline:none;">
+          </span>
+          <button class="btn-dl green" id="reprint-btn" onclick="reprintBoxLabel()">🖨 Stampa</button>
+        </div>
+
         <!-- MODIFICA BOX (visibile solo se box in stato 'creato') -->
         <div class="ship-section" id="edit-section">
           <div style="font-size:0.85rem;font-weight:600;color:var(--warn);margin-bottom:10px;">✎ Modifica box (non spedito)</div>
@@ -350,6 +360,7 @@
         document.getElementById('box-info').style.display = 'none';
         document.getElementById('table-wrap').style.display = 'none';
         document.getElementById('download-btns').style.display = 'none';
+        document.getElementById('reprint-section').style.display = 'none';
         document.getElementById('ship-section').classList.remove('visible');
         document.getElementById('edit-section').classList.remove('visible');
         document.getElementById('add-fr-input').value = '';
@@ -537,6 +548,7 @@
       document.getElementById('box-info').style.display = 'none';
       document.getElementById('table-wrap').style.display = 'none';
       document.getElementById('download-btns').style.display = 'none';
+      document.getElementById('reprint-section').style.display = 'none';
       document.getElementById('ship-section').classList.remove('visible');
 
       try {
@@ -573,6 +585,7 @@
         });
         document.getElementById('table-wrap').style.display = 'block';
         document.getElementById('download-btns').style.display = 'flex';
+        document.getElementById('reprint-section').style.display = 'flex';
 
         // Mostra sezione spedizione se box è in stato 'creato'
         if (json.box.stato === 'creato') {
@@ -648,6 +661,25 @@
       const a = document.createElement('a');
       a.href = url; a.download = `${lookupBoxSerial}.${ext}`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }
+
+    // Ristampa etichetta box (riusa /api/outbox/print-label)
+    async function reprintBoxLabel() {
+      if (!lookupBoxSerial) return;
+      const copiesInput = document.getElementById('reprint-copies');
+      const copies = copiesInput ? Math.max(1, Math.min(parseInt(copiesInput.value) || 1, 50)) : 1;
+      const btn = document.getElementById('reprint-btn');
+      const origText = btn.textContent;
+      btn.disabled = true; btn.textContent = `⏳ Stampa ${copies}…`;
+      try {
+        const res = await fetch('/api/outbox/print-label', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ box_serial: lookupBoxSerial, copies })
+        });
+        const json = await res.json();
+        if (json.ok) { btn.textContent = `✓ ${json.copies} stampat${json.copies===1?'a':'e'}`; setTimeout(()=>{ btn.disabled=false; btn.textContent=origText; }, 2000); }
+        else { btn.disabled=false; btn.textContent=origText; alert('Errore stampa:\n'+json.error); }
+      } catch(err) { btn.disabled=false; btn.textContent=origText; alert('Errore di rete.'); }
     }
 
     // ── MODIFICA / ELIMINAZIONE BOX (solo box in stato 'creato') ──

@@ -71,9 +71,9 @@ function buildBoxLabelZPL(boxSerial) {
     '^CI28',
     '^LH0,0',
     '^FO15,15^A0N,22,22^FDUscita Box^FS',
-    `^FO15,45^BQN,2,6^FDQA,${boxSerial}^FS`,
-    `^FO230,85^A0N,30,30^FD${prefix}^FS`,
-    `^FO230,125^A0N,52,52^FD${num}^FS`,
+    `^FO15,45^BQN,2,10^FDQA,${boxSerial}^FS`,
+    `^FO245,85^A0N,30,30^FD${prefix}^FS`,
+    `^FO245,125^A0N,52,52^FD${num}^FS`,
     '^XZ',
   ].join('');
 }
