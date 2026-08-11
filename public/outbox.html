@@ -91,6 +91,7 @@
     .badge-spedito { background:var(--accent); color:#fff; }
     .badge-completato { background:var(--ok-dim); color:var(--ok); border:1px solid rgba(63,185,80,0.3); }
     .badge-rientrato { background:var(--ok-dim); color:var(--ok); border:1px solid rgba(63,185,80,0.3); }
+    .badge-archiviata { background:var(--bg3); color:var(--text3); border:1px solid var(--border2); text-decoration:line-through; }
     .badge-raccolto { background:var(--bg3); color:var(--text2); border:1px solid var(--border); }
     .ship-section { margin-top:1rem; padding:1rem; background:var(--bg3); border:1px solid var(--border); border-radius:6px; display:none; }
     .ship-section.visible { display:block; }
@@ -270,6 +271,21 @@
           <a class="btn-dl green" id="cliente-report-btn" href="#" target="_blank" style="text-decoration:none; flex:1;">📋 Lista SN;ICCID per cliente</a>
         </div>
 
+        <!-- PROMOTE: crea box uscita_cliente dai FR rientrati (solo box uscita_terzista con FR rientrati) -->
+        <div class="ship-section" id="promote-section">
+          <div style="font-size:0.85rem;font-weight:600;color:var(--accent);margin-bottom:8px;">➡ Spedisci al cliente</div>
+          <p style="font-size:0.8rem;color:var(--text2);margin-bottom:10px;">Crea una nuova box <strong>uscita_cliente</strong> spostando in blocco tutti gli FR rientrati di questa box. La box corrente rimarrà come storico (vuota) e potrai archiviarla.</p>
+          <button class="btn-primary" id="promote-btn" onclick="promoteToCliente()" style="margin-top:0;">
+            <div class="spinner"></div><span class="btn-text">➡ Crea box uscita_cliente</span>
+          </button>
+        </div>
+
+        <!-- ARCHIVIA BOX (box vuote) -->
+        <div class="ship-section" id="archive-section">
+          <div style="font-size:0.85rem;font-weight:600;color:var(--text3);margin-bottom:8px;">🗄 Archiviazione</div>
+          <button class="btn-dl" id="archive-btn" onclick="toggleArchive()" style="width:100%;"></button>
+        </div>
+
         <!-- MODIFICA BOX (visibile solo se box in stato 'creato') -->
         <div class="ship-section" id="edit-section">
           <div style="font-size:0.85rem;font-weight:600;color:var(--warn);margin-bottom:10px;">✎ Modifica box (non spedito)</div>
@@ -397,6 +413,8 @@
         document.getElementById('edit-section').classList.remove('visible');
         document.getElementById('ddt-edit-section').classList.remove('visible');
         document.getElementById('cliente-report-section').style.display = 'none';
+        document.getElementById('promote-section').classList.remove('visible');
+        document.getElementById('archive-section').classList.remove('visible');
         document.getElementById('add-fr-input').value = '';
         document.getElementById('edit-tipo-select').value = 'uscita_terzista';
         lookupInput.focus();
@@ -421,6 +439,7 @@
         'completato':'<span class="badge badge-completato">COMPLETATO</span>',
         'raccolto':  '<span class="badge badge-raccolto">RACCOLTO</span>',
         'rientrato': '<span class="badge badge-rientrato">RIENTRATO</span>',
+        'archiviata':'<span class="badge badge-archiviata">ARCHIVIATA</span>',
       };
       return map[stato] || `<span class="badge badge-raccolto">${stato || '—'}</span>`;
     }
@@ -602,6 +621,8 @@
       document.getElementById('edit-section').classList.remove('visible');
       document.getElementById('ddt-edit-section').classList.remove('visible');
       document.getElementById('cliente-report-section').style.display = 'none';
+      document.getElementById('promote-section').classList.remove('visible');
+      document.getElementById('archive-section').classList.remove('visible');
 
       try {
         const res = await fetch(`/api/outbox/${encodeURIComponent(box_serial)}`);
@@ -648,6 +669,28 @@
           document.getElementById('cliente-report-section').style.display = 'flex';
         } else {
           document.getElementById('cliente-report-section').style.display = 'none';
+        }
+
+        // Promote: box uscita_terzista con almeno un FR rientrato
+        const hasRientrato = json.items.some(i => i.stato === 'rientrato');
+        if (json.box.tipo === 'uscita_terzista' && hasRientrato) {
+          document.getElementById('promote-section').classList.add('visible');
+        } else {
+          document.getElementById('promote-section').classList.remove('visible');
+        }
+
+        // Archiviazione: box vuota (0 FR) oppure gia archiviata
+        const archBtn = document.getElementById('archive-btn');
+        if (json.box.archived) {
+          document.getElementById('archive-section').classList.add('visible');
+          archBtn.textContent = '↩ Ripristina box (disarchivia)';
+          archBtn.style.color = 'var(--accent)';
+        } else if (json.count === 0) {
+          document.getElementById('archive-section').classList.add('visible');
+          archBtn.textContent = '🗄 Archivia box (vuota)';
+          archBtn.style.color = 'var(--text3)';
+        } else {
+          document.getElementById('archive-section').classList.remove('visible');
         }
 
         // Mostra sezione spedizione se box è in stato 'creato'
@@ -850,6 +893,54 @@
         else { alert('Errore:\n' + json.error); }
       } catch(err) { alert('Errore di rete.'); }
       finally { btn.disabled = false; }
+    }
+
+    // Crea box uscita_cliente spostando in blocco gli FR rientrati
+    async function promoteToCliente() {
+      if (!lookupBoxSerial) return;
+      const cnt = document.getElementById('lookup-tbody').querySelectorAll('tr').length;
+      if (!confirm(`Creare una nuova box uscita_cliente spostando tutti gli FR rientrati di ${lookupBoxSerial}?`)) return;
+      const btn = document.getElementById('promote-btn');
+      btn.disabled = true; btn.classList.add('loading');
+      try {
+        const res = await fetch(`/api/outbox/${encodeURIComponent(lookupBoxSerial)}/promote`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({})
+        });
+        const json = await res.json();
+        if (json.ok) {
+          alert(`${json.message}\n\nNuova box: ${json.new_box_serial}`);
+          // Apri la nuova box uscita_cliente
+          switchTab('lookup');
+          lookupInput.value = json.new_box_serial.replace(/^RBOX-/, '');
+          lookupBox();
+        } else {
+          alert('Errore:\n' + json.error);
+        }
+      } catch(err) { alert('Errore di rete.'); }
+      finally { btn.disabled = false; btn.classList.remove('loading'); }
+    }
+
+    // Archivia/disarchivia box vuota
+    async function toggleArchive() {
+      if (!lookupBoxSerial) return;
+      // determina azione dal testo del bottone
+      const btn = document.getElementById('archive-btn');
+      const isArchived = btn.textContent.includes('Ripristina');
+      const archived = !isArchived;  // se non e archiviata -> archivia
+      const msg = archived
+        ? `Archiviare la box ${lookupBoxSerial}? Non apparira piu nel tab Stato.`
+        : `Ripristinare la box ${lookupBoxSerial} nel tab Stato?`;
+      if (!confirm(msg)) return;
+      try {
+        const res = await fetch(`/api/outbox/${encodeURIComponent(lookupBoxSerial)}/archive`, {
+          method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ archived })
+        });
+        const json = await res.json();
+        if (json.ok) { lookupBox(); }  // ricarica dettaglio
+        else { alert('Errore:\n' + json.error); }
+      } catch(err) { alert('Errore di rete.'); }
     }
 
     // Elimina l'intera box

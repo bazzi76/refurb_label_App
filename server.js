@@ -1033,6 +1033,7 @@ app.get('/api/outbox/dashboard', async (req, res) => {
         COUNT(i.id) FILTER (WHERE i.stato = 'raccolto') AS fr_raccolti
       FROM outbound_boxes b
       LEFT JOIN outbound_box_items i ON b.id = i.box_id
+      WHERE b.archived = FALSE
       GROUP BY b.id
       ORDER BY b.data_creazione DESC
     `);
@@ -1079,7 +1080,7 @@ app.get('/api/outbox/:box_serial', async (req, res) => {
     client = await DB.connect();
 
     const boxResult = await client.query(
-      'SELECT id, box_serial, tipo, stato, data_creazione, data_spedizione, ddt_uscita FROM outbound_boxes WHERE box_serial = $1',
+      'SELECT id, box_serial, tipo, stato, data_creazione, data_spedizione, ddt_uscita, archived FROM outbound_boxes WHERE box_serial = $1',
       [box_serial]
     );
 
@@ -1107,6 +1108,7 @@ app.get('/api/outbox/:box_serial', async (req, res) => {
         data_creazione: box.data_creazione,
         data_spedizione: box.data_spedizione,
         ddt_uscita: box.ddt_uscita,
+        archived: box.archived,
       },
       items: itemsResult.rows.map(r => ({
         fr: r.fr,
@@ -1146,7 +1148,7 @@ app.get('/api/outbox/:box_serial/export/:format', async (req, res) => {
     client = await DB.connect();
 
     const boxResult = await client.query(
-      'SELECT id, box_serial, tipo, stato, data_creazione, data_spedizione, ddt_uscita FROM outbound_boxes WHERE box_serial = $1',
+      'SELECT id, box_serial, tipo, stato, data_creazione, data_spedizione, ddt_uscita, archived FROM outbound_boxes WHERE box_serial = $1',
       [box_serial]
     );
 
@@ -1213,7 +1215,7 @@ app.get('/api/outbox/:box_serial/pdf', async (req, res) => {
     client = await DB.connect();
 
     const boxResult = await client.query(
-      'SELECT id, box_serial, tipo, stato, data_creazione, data_spedizione, ddt_uscita FROM outbound_boxes WHERE box_serial = $1',
+      'SELECT id, box_serial, tipo, stato, data_creazione, data_spedizione, ddt_uscita, archived FROM outbound_boxes WHERE box_serial = $1',
       [box_serial]
     );
 
@@ -1955,6 +1957,152 @@ app.get('/api/outbox/:box_serial/report', async (req, res) => {
 
   } catch (err) {
     console.error('Errore outbox/report:', err.message);
+    return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// ------------------------------------------------------------------------------
+// API — POST /api/outbox/:box_serial/promote
+// Crea una nuova box uscita_cliente e sposta in blocco tutti gli FR rientrati
+// della box sorgente (uscita_terzista completata). Ritorna la nuova box_serial.
+// Body opzionale: { new_box_serial: "RBOX-0010" }
+// ------------------------------------------------------------------------------
+app.post('/api/outbox/:box_serial/promote', async (req, res) => {
+  const { box_serial } = req.params;
+  const { new_box_serial } = req.body;
+
+  if (!box_serial || !/^RBOX-(OUT-)?\d+$/.test(box_serial)) {
+    return res.status(400).json({ ok: false, error: 'Seriale box sorgente non valido. Formato atteso: RBOX-NNNN' });
+  }
+
+  let client;
+  try {
+    client = await DB.connect();
+
+    const srcResult = await client.query(
+      'SELECT id, tipo, stato FROM outbound_boxes WHERE box_serial = $1',
+      [box_serial]
+    );
+    if (srcResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: `Box ${box_serial} non trovato.` });
+    }
+    const src = srcResult.rows[0];
+    if (src.tipo !== 'uscita_terzista') {
+      return res.status(409).json({ ok: false, error: `Solo le box uscita_terzista possono essere promosse a uscita_cliente.` });
+    }
+
+    // FR rientrati da spostare
+    const rientrati = await client.query(
+      `SELECT id FROM outbound_box_items WHERE box_id = $1 AND stato = 'rientrato'`,
+      [src.id]
+    );
+    const itemIds = rientrati.rows.map(r => r.id);
+    if (itemIds.length === 0) {
+      return res.status(409).json({ ok: false, error: `Nessun FR rientrato in ${box_serial} da spostare.` });
+    }
+
+    // Determina il seriale della nuova box
+    let newSerial;
+    if (new_box_serial) {
+      const nbs = String(new_box_serial).trim().toUpperCase();
+      if (!/^RBOX-(OUT-)?\d+$/.test(nbs)) {
+        return res.status(400).json({ ok: false, error: 'Seriale nuova box non valido. Formato atteso: RBOX-NNNN' });
+      }
+      const exists = await client.query('SELECT id FROM outbound_boxes WHERE box_serial = $1', [nbs]);
+      if (exists.rows.length > 0) {
+        return res.status(409).json({ ok: false, error: `Il seriale ${nbs} e gia in uso.` });
+      }
+      newSerial = nbs;
+    } else {
+      const maxRes = await client.query(`
+        SELECT COALESCE(MAX(CAST(SUBSTRING(box_serial FROM 'RBOX-(?:OUT-)?(\\d+)') AS INTEGER)), 0) AS max_num
+        FROM outbound_boxes WHERE box_serial ~ '^RBOX-(?:OUT-)?\\d+$'
+      `);
+      newSerial = `RBOX-${String(maxRes.rows[0].max_num + 1).padStart(4, '0')}`;
+    }
+
+    // Crea la nuova box uscita_cliente
+    const newBox = await client.query(
+      'INSERT INTO outbound_boxes (box_serial, tipo) VALUES ($1, $2) RETURNING id',
+      [newSerial, 'uscita_cliente']
+    );
+    const newBoxId = newBox.rows[0].id;
+
+    // Sposta gli FR rientrati nella nuova box (stato -> raccolto)
+    await client.query(
+      `UPDATE outbound_box_items SET box_id = $1, stato = 'raccolto', data_rientro = NULL WHERE id = ANY($2)`,
+      [newBoxId, itemIds]
+    );
+
+    return res.json({
+      ok: true,
+      message: `Creata box ${newSerial} (uscita_cliente) con ${itemIds.length} FR spostati da ${box_serial}.`,
+      new_box_serial: newSerial,
+      source_box_serial: box_serial,
+      moved: itemIds.length,
+    });
+
+  } catch (err) {
+    console.error('Errore outbox/promote:', err.message);
+    return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// ------------------------------------------------------------------------------
+// API — PATCH /api/outbox/:box_serial/archive
+// Archivia/disarchivia una box vuota (0 FR). Le box archiviate non appaiono nel dashboard.
+// Body: { archived: true|false }
+// ------------------------------------------------------------------------------
+app.patch('/api/outbox/:box_serial/archive', async (req, res) => {
+  const { box_serial } = req.params;
+  const { archived } = req.body;
+
+  if (!box_serial || !/^RBOX-(OUT-)?\d+$/.test(box_serial)) {
+    return res.status(400).json({ ok: false, error: 'Seriale box non valido. Formato atteso: RBOX-NNNN' });
+  }
+  const archivedVal = archived === false ? false : true;
+
+  let client;
+  try {
+    client = await DB.connect();
+
+    const boxResult = await client.query(
+      'SELECT id FROM outbound_boxes WHERE box_serial = $1',
+      [box_serial]
+    );
+    if (boxResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: `Box ${box_serial} non trovato.` });
+    }
+
+    // Per archiviare: la box deve essere vuota (0 FR)
+    if (archivedVal) {
+      const cnt = await client.query(
+        'SELECT COUNT(*) AS c FROM outbound_box_items WHERE box_id = $1',
+        [boxResult.rows[0].id]
+      );
+      if (parseInt(cnt.rows[0].c) > 0) {
+        return res.status(409).json({ ok: false, error: `Impossibile archiviare: la box contiene ancora FR. Spostali prima (es. promote a uscita_cliente).` });
+      }
+    }
+
+    await client.query(
+      'UPDATE outbound_boxes SET archived = $2 WHERE id = $1',
+      [boxResult.rows[0].id, archivedVal]
+    );
+
+    return res.json({
+      ok: true,
+      message: archivedVal ? `Box ${box_serial} archiviata.` : `Box ${box_serial} ripristinata.`,
+      box_serial,
+      archived: archivedVal,
+    });
+
+  } catch (err) {
+    console.error('Errore outbox/archive:', err.message);
     return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
   } finally {
     if (client) client.release();
