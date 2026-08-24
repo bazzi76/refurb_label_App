@@ -847,23 +847,38 @@
         }
 
         const data = json.data;
+        const reg  = json.registry;
+        const fr   = reg ? reg.fr : (data ? data.fr : null);
+        const esitoLabel = reg ? (reg.esito === 'riparato' ? 'riparato' : (reg.esito === 'non_riparabile' ? 'NON riparabile' : 'in sospeso')) : '—';
+
+        if (!data) {
+          // FR in anagrafica senza collaudo (in deposito, pre-terzista)
+          currentExtSn = reg ? reg.ext_sn : null;
+          showResult('warn', '📦', 'FR IN DEPOSITO (NON COLLAUDATO)',
+            `L'FR ${fr||'—'} è in anagrafica ma non ha ancora un collaudo.\n` +
+            `Stato: ${reg ? reg.stato : '—'} · Esito: ${esitoLabel} · Tentativi: ${reg ? reg.tentativi : 0}.`, null);
+          printBtn.style.display = 'none';
+          updateBoxAssign(json.box, fr);
+          return;
+        }
+
         currentExtSn = data.ext_sn;
         const displayId = data.fr ? `${data.ext_sn} (FR ${data.fr})` : data.ext_sn;
 
         if (data.esito_test === 'OK') {
           showResult('ok', '✓', 'VERIFICA OK',
-            `Gateway ${displayId} trovato e collaudo superato.`, data);
+            `Gateway ${displayId} trovato e collaudo superato. Esito FR: ${esitoLabel}.`, data);
           printBtn.style.display = 'flex';
           printBtn.disabled = false;
           printBtn.classList.remove('loading');
           printBtn.querySelector('.btn-text').textContent = '🖨\u00a0 Stampa Etichetta';
         } else {
           showResult('nok', '✕', 'TEST NON SUPERATO',
-            `Il collaudo per ${displayId} non è andato a buon fine (${data.esito_test}).`, data);
+            `Il collaudo per ${displayId} non è andato a buon fine (${data.esito_test}). Esito FR: ${esitoLabel}.`, data);
           printBtn.style.display = 'none';
         }
 
-        updateBoxAssign(json.box, data.fr);
+        updateBoxAssign(json.box, fr);
 
       } catch (err) {
         showResult('nok', '✕', 'ERRORE DI RETE',

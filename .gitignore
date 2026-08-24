@@ -13,3 +13,6 @@ public/report.html.old
 backups/
 *.bak_*
 *.bak
+
+# Certificati TLS self-signed
+certs/

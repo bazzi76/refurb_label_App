@@ -168,6 +168,13 @@
             <option value="uscita_cliente">Uscita verso cliente finale</option>
           </select>
         </div>
+        <div style="margin-top:1.25rem;" id="esito-select-wrap" hidden>
+          <label class="field-label" for="box-esito-select">Esito (solo uscita cliente)</label>
+          <select id="box-esito-select">
+            <option value="riparato">Riparato</option>
+            <option value="non_riparabile">Non riparabile</option>
+          </select>
+        </div>
 
         <div style="margin-top:1.25rem;">
           <label class="field-label" for="fr-list-input">Codici FR (uno per riga)</label>
@@ -222,12 +229,13 @@
           <div class="item"><span class="k">Creato:</span><span class="v" id="info-date"></span></div>
           <div class="item"><span class="k">Spedizione:</span><span class="v" id="info-spedizione"></span></div>
           <div class="item"><span class="k">DDT:</span><span class="v" id="info-ddt"></span></div>
+          <div class="item"><span class="k">Esito:</span><span id="info-esito"></span></div>
           <div class="item"><span class="k">FR totali:</span><span class="v" id="info-count"></span></div>
         </div>
 
         <div class="table-wrap" id="table-wrap" style="display:none;">
           <table class="data">
-            <thead><tr><th>#</th><th>Codice FR</th><th>Stato</th><th>Data inserimento</th><th>Data rientro</th><th>DDT rientro</th><th>Azioni</th></tr></thead>
+            <thead><tr><th>#</th><th>Codice FR</th><th>Stato</th><th>Esito</th><th>Data inserimento</th><th>Data rientro</th><th>DDT rientro</th><th>Azioni</th></tr></thead>
             <tbody id="lookup-tbody"></tbody>
           </table>
         </div>
@@ -249,6 +257,14 @@
           <input type="text" id="ddt-edit-input" class="ddt-input" placeholder="es. DDT-2026-001 (opzionale)" autocomplete="off">
           <button class="btn-primary" id="ddt-edit-btn" onclick="updateDdt()" style="margin-top:0;">
             <div class="spinner"></div><span class="btn-text">💾 Aggiorna DDT</span>
+          </button>
+        </div>
+        <!-- ANNULLA SPEDIZIONE (box spedita -> creato) -->
+        <div class="ship-section" id="unship-section">
+          <div style="font-size:0.85rem;font-weight:600;color:var(--warn);margin-bottom:8px;">↩ Annulla spedizione</div>
+          <p style="font-size:0.8rem;color:var(--text2);margin-bottom:10px;">Riporta la box in stato <strong>creato</strong>. Annulla data spedizione e DDT di uscita; gli FR tornano disponibili in deposito (nella box). Utile se la box è stata marcata spedita per errore.</p>
+          <button class="btn-primary" id="unship-btn" onclick="unshipBox()" style="margin-top:0;">
+            <div class="spinner"></div><span class="btn-text">↩ Riporta in 'creato'</span>
           </button>
         </div>
 
@@ -390,7 +406,7 @@
         </div>
         <div class="table-wrap">
           <table class="data">
-            <thead><tr><th>#</th><th>FR</th><th>SN</th><th>Ext SN</th><th>ICCID</th><th>Esito</th><th>Data</th><th>Azioni</th></tr></thead>
+            <thead><tr><th>#</th><th>FR</th><th>Ext SN</th><th>Esito</th><th>Tent.</th><th>Box</th><th>In deposito dal</th><th>Azioni</th></tr></thead>
             <tbody id="deposito-tbody"></tbody>
           </table>
         </div>
@@ -444,6 +460,7 @@
         document.getElementById('cliente-report-section').style.display = 'none';
         document.getElementById('promote-section').classList.remove('visible');
         document.getElementById('archive-section').classList.remove('visible');
+        document.getElementById('unship-section').classList.remove('visible');
         document.getElementById('add-fr-input').value = '';
         document.getElementById('edit-tipo-select').value = 'uscita_terzista';
         lookupInput.focus();
@@ -465,6 +482,12 @@
       if (!esito) return '<span class="badge badge-raccolto">—</span>';
       if (esito === 'OK') return '<span style="color:var(--ok);font-weight:600;">OK</span>';
       return `<span style="color:var(--nok);font-weight:600;" title="${esito}">NOK</span>`;
+    }
+    function esitoBadgeFr(esito) {
+      if (!esito) return '<span class="badge badge-raccolto">in sospeso</span>';
+      if (esito === 'riparato') return '<span class="badge badge-rientrato" style="background:var(--ok-dim);color:var(--ok);">RIPARATO</span>';
+      if (esito === 'non_riparabile') return '<span class="badge badge-nok" style="background:var(--nok-dim);color:var(--nok);">NON RIPARABILE</span>';
+      return `<span class="badge">${esito}</span>`;
     }
     function statoBadge(stato) {
       const map = {
@@ -564,7 +587,8 @@
       try {
         const res = await fetch('/api/outbox/create', {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ box_serial, frs, tipo })
+          body: JSON.stringify(Object.assign({ box_serial, frs, tipo },
+            (tipo === 'uscita_cliente' ? { esito: boxEsitoSelect.value } : {})))
         });
         const json = await res.json();
 
@@ -675,6 +699,7 @@
         document.getElementById('info-date').textContent = fmtDate(json.box.data_creazione);
         document.getElementById('info-spedizione').textContent = fmtDate(json.box.data_spedizione);
         document.getElementById('info-ddt').textContent = json.box.ddt_uscita || '—';
+        document.getElementById('info-esito').innerHTML = json.box.esito ? esitoBadgeFr(json.box.esito) : '—';
         document.getElementById('info-count').textContent = json.count;
         document.getElementById('box-info').style.display = 'flex';
 
@@ -690,7 +715,7 @@
           const actionCell = isEditable
             ? `<td><button class="fr-del-btn" onclick="deleteFrFromBox('${item.fr}')" title="Rimuovi FR dal box">✕</button></td>`
             : '<td></td>';
-          tr.innerHTML = `<td class="num">${i+1}</td><td class="fr"><a class="fr-link" href="/?fr=${encodeURIComponent(item.fr)}" target="_blank" title="Verifica ${item.fr} nella pagina Stampa">${item.fr}</a></td><td>${statoBadge(item.stato)}</td><td class="date">${fmtDate(item.data_inserimento)}</td><td class="date">${fmtDate(item.data_rientro)}</td>${ddtRientroCell}${actionCell}`;
+          tr.innerHTML = `<td class="num">${i+1}</td><td class="fr"><a class="fr-link" href="/?fr=${encodeURIComponent(item.fr)}" target="_blank" title="Verifica ${item.fr} nella pagina Stampa">${item.fr}</a></td><td>${statoBadge(item.stato)}</td><td>${esitoBadgeFr(item.fr_esito)}</td><td class="date">${fmtDate(item.data_inserimento)}</td><td class="date">${fmtDate(item.data_rientro)}</td>${ddtRientroCell}${actionCell}`;
           tbody.appendChild(tr);
         });
         document.getElementById('table-wrap').style.display = 'block';
@@ -753,6 +778,10 @@
           // Box già spedita/completata: mostra sezione modifica DDT
           document.getElementById('ddt-edit-input').value = json.box.ddt_uscita || '';
           document.getElementById('ddt-edit-section').classList.add('visible');
+          // Box spedita: mostra annulla spedizione
+          if (json.box.stato === 'spedito') {
+            document.getElementById('unship-section').classList.add('visible');
+          }
         }
 
       } catch(err) {
@@ -804,6 +833,29 @@
       const a = document.createElement('a');
       a.href = url; a.download = `${lookupBoxSerial}.${ext}`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }
+
+    // ── ANNULLA SPEDIZIONE (spedito -> creato) ──
+    async function unshipBox() {
+      if (!lookupBoxSerial) return;
+      if (!confirm(`Riportare la box ${lookupBoxSerial} in stato 'creato'?\nVerranno annullate data spedizione e DDT di uscita; gli FR torneranno in deposito (nella box).`)) return;
+      const btn = document.getElementById('unship-btn');
+      btn.disabled = true; btn.classList.add('loading');
+      try {
+        const res = await fetch(`/api/outbox/${encodeURIComponent(lookupBoxSerial)}/stato`, {
+          method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ stato: 'creato' })
+        });
+        const json = await res.json();
+        if (json.ok) {
+          showLookupResult('ok','↩ BOX RIPORTATA IN CREATO', `${json.message}<br><br>Aggiorna la pagina per vedere lo stato aggiornato.`);
+          document.getElementById('unship-section').classList.remove('visible');
+          lookupBox();  // ricarica
+        } else {
+          alert('Errore:\n' + json.error);
+        }
+      } catch(err) { alert('Errore di rete.'); }
+      finally { btn.disabled = false; btn.classList.remove('loading'); }
     }
 
     // Ristampa etichetta box (riusa /api/outbox/print-label)
@@ -932,14 +984,15 @@
     // Crea box uscita_cliente spostando in blocco gli FR rientrati
     async function promoteToCliente() {
       if (!lookupBoxSerial) return;
-      const cnt = document.getElementById('lookup-tbody').querySelectorAll('tr').length;
-      if (!confirm(`Creare una nuova box uscita_cliente spostando tutti gli FR rientrati di ${lookupBoxSerial}?`)) return;
+      const esito = prompt(`Quale esito spostare verso il cliente?\n  riparato\n  non_riparabile`, 'riparato');
+      if (!['riparato','non_riparabile'].includes(esito)) { if (esito !== null) alert('Esito non valido.'); return; }
+      if (!confirm(`Creare una nuova box uscita_cliente (${esito}) spostando gli FR rientrati con esito "${esito}" di ${lookupBoxSerial}?`)) return;
       const btn = document.getElementById('promote-btn');
       btn.disabled = true; btn.classList.add('loading');
       try {
         const res = await fetch(`/api/outbox/${encodeURIComponent(lookupBoxSerial)}/promote`, {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({})
+          body: JSON.stringify({ esito })
         });
         const json = await res.json();
         if (json.ok) {
@@ -1107,7 +1160,11 @@
         tbody.innerHTML = '';
         json.rows.forEach((r, i) => {
           const tr = document.createElement('tr');
-          tr.innerHTML = `<td class="num">${i+1}</td><td class="fr">${r.fr}</td><td style="font-size:0.72rem;">${r.sn||'—'}</td><td style="font-size:0.72rem;">${r.ext_sn||'—'}</td><td style="font-size:0.72rem;">${r.iccid||'—'}</td><td>${esitoBadge(r.esito_test)}</td><td class="date">${fmtDate(r.data)}</td><td><button class="fr-edit-btn" onclick="assignFromDeposito('${r.fr}')" title="Assegna alla box destinazione">➡</button></td>`;
+          const boxCell = r.box ? `<span class="badge badge-creato">${r.box}</span><br><span style="font-size:0.62rem;color:var(--text3);">${r.box_stato}</span>` : '<span style="color:var(--text3);">—</span>';
+          const dt = r.data_rientro || r.data_creazione;
+          const azioni = `<button class="fr-edit-btn" onclick="assignFromDeposito('${r.fr}')" title="Assegna alla box destinazione">➡</button>` +
+            `<button class="fr-edit-btn" onclick="setFrEsito('${r.fr}','non_riparabile')" title="Dichiara non riparabile" style="margin-left:4px;color:var(--nok);">⊘</button>`;
+          tr.innerHTML = `<td class="num">${i+1}</td><td class="fr">${r.fr}</td><td style="font-size:0.72rem;">${r.ext_sn||'—'}</td><td>${esitoBadgeFr(r.esito)}</td><td style="text-align:center;">${r.tentativi||0}</td><td style="font-size:0.72rem;">${boxCell}</td><td class="date">${fmtDate(dt)}</td><td>${azioni}</td>`;
           tbody.appendChild(tr);
         });
       } catch(err) {
@@ -1153,12 +1210,32 @@
       } catch(err) { alert('Errore di rete.'); }
     }
 
+    async function setFrEsito(fr, esito) {
+      if (!confirm(`Impostare esito "${esito}" per ${fr}?`)) return;
+      try {
+        const res = await fetch(`/api/fr/${fr}/esito`, {
+          method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ esito })
+        });
+        const json = await res.json();
+        if (json.ok) { loadDeposito(); }
+        else { alert('Errore:\n' + json.error); }
+      } catch(err) { alert('Errore di rete.'); }
+    }
+
     async function createEmptyBox() {
-      if (!confirm('Creare una nuova box vuota (uscita_cliente)?')) return;
+      const tipo = prompt('Tipo box vuota da creare:\n  uscita_terzista\n  uscita_cliente (richiede esito)', 'uscita_terzista');
+      if (!tipo) return;
+      let payload = { tipo };
+      if (tipo === 'uscita_cliente') {
+        const esito = prompt('Esito per uscita_cliente: riparato o non_riparabile?', 'riparato');
+        if (!['riparato','non_riparabile'].includes(esito)) { alert('Esito non valido.'); return; }
+        payload.esito = esito;
+      }
       try {
         const res = await fetch('/api/outbox/create-empty', {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ tipo: 'uscita_cliente' })
+          body: JSON.stringify(payload)
         });
         const json = await res.json();
         if (json.ok) { alert(json.message); loadAssignableBoxesDep(); }

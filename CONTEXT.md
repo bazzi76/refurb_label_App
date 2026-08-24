@@ -10,7 +10,8 @@
 - **Database**: PostgreSQL (host 10.11.12.8:5432, db `device_db`, utente `tester`)
 - **Stampanti**: Zebra ZPL via TCP RAW (10.2.0.6:9100), CUPS stampante A4 `CollaudioA4`
 - **PDF**: Chromium headless per HTML→PDF
-- **Porta**: 3344 (http://0.0.0.0:3344)
+- **Porta**: 3344 (**https**://0.0.0.0:3344, certificato self-signed)
+- **TLS**: certificato self-signed in `certs/` (valido 10 anni, SAN `IP:10.11.12.8`)
 - **Servizio systemd**: `refurb-labeler.service` (avvio automatico, restart=always)
 
 ```bash
@@ -30,11 +31,12 @@ sudo systemctl restart refurb-labeler.service
 
 ```
 refurb_label_App/
-├── server.js              (1902 righe) — backend Express: API, ZPL, PDF, gestione box
+├── server.js              — backend Express: API, ZPL, PDF, gestione box, HTTPS
 ├── package.json           — dipendenze: express, pg
 ├── refurb-labeler.service — unit systemd
 ├── setup.sh               — script installazione servizio
 ├── .gitignore             — (include backups/ e *.bak_*)
+├── certs/                 — certificato TLS self-signed (key.pem, cert.pem; gitignored)
 ├── backups/               — dump DB di sicurezza (gitignored)
 ├── public/
 │   ├── index.html         (920 righe)  — UI principale: verifica SN/FR + stampa etichetta/collaudo
@@ -69,7 +71,7 @@ refurb_label_App/
 | `/api/print` | POST | Stampa etichetta ZPL su Zebra (3 copie) |
 | `/api/print-fr` | POST | Stampa N etichette FR (QR del codice FR + testo); nessun DB |
 | `/api/print-collaudo` | POST | Stampa foglio collaudo A4 via CUPS |
-| `/api/pdf-collaudo/:ext_sn` | GET | Genera e scarica PDF collaudo |
+| `/api/pdf-collaudo/:ext_sn` | GET | Genera e scarica PDF collaudo (inline, HTTPS) |
 | `/api/report` | POST | Bulk lookup ICCID |
 | `/api/outbox/create` | POST | Crea/aggiorna box con FR (gestisce spostamento FR rientrati); blocca se box già spedita |
 | `/api/outbox/next-serial` | GET | Suggerisce prossimo seriale box disponibile |
@@ -77,7 +79,7 @@ refurb_label_App/
 | `/api/outbox/dashboard` | GET | Panoramica spediti/rientrati/spediti cliente |
 | `/api/outbox/:box_serial` | GET | Recupera FR di un box (include ddt_rientro per FR) |
 | `/api/outbox/:box_serial/export/:format` | GET | Export CSV/TXT |
-| `/api/outbox/:box_serial/pdf` | GET | Genera PDF distinta box |
+| `/api/outbox/:box_serial/pdf` | GET | Genera PDF distinta box (inline, HTTPS, paginato 20/pag, data spedizione) |
 | `/api/outbox/ship` | POST | Marca box come spedita (**DDT opzionale**) |
 | `/api/outbox/return` | POST | Registra rientro FR (singoli o in box) + DDT rientro; box → `completato` se tutti FR rientrati |
 | `/api/outbox/:box_serial/promote` | POST | Crea box `uscita_cliente` e sposta in blocco gli FR rientrati (da box `uscita_terzista`) |
@@ -149,6 +151,19 @@ refurb_label_App/
   - outbox.html: nuovo tab **Deposito** con lista FR fuori scatola, box destinazione + Assegna per riga, Crea box vuota.
 - **Bug fix**: regression in `submitVerify` (body fetch usava `ext_sn` rimossa invece di `payload` → mostrato come "ERRORE DI RETE"), corretto.
 
+### Sessione del 2026-08-24 (PDF distinta: data spedizione, paginazione, HTTPS)
+
+- **Data spedizione nel PDF distinta box**: l'endpoint `/api/outbox/:box_serial/pdf` estrae già `data_spedizione` dalla query ma non la mostrava. Aggiunta riga "Data spedizione" nell'info-box del PDF, visibile solo se la box è stata effettivamente spedita (`data_spedizione` non nulla).
+- **Paginazione PDF a 20 elementi per pagina**: la tabella FR era un singolo blocco; con molte righe il footer `position: fixed` si sovrapponeva al contenuto. Implementata paginazione: i FR vengono suddivisi in blocchi da 20, ognuno in un `<div class="page-section">` con `page-break-after: always` tra le pagine. L'intestazione della tabella si ripete su ogni pagina; la numerazione FR è continua across le pagine. CSS: `.page-break { page-break-after: always; }` + `.page-section { page-break-inside: avoid; }`.
+- **Rimozione footer**: il footer fisso ("Gruppo Sim Tel — Sistema Refurb Gateway") è stato rimosso del tutto dal PDF (CSS + HTML). Il padding inferiore del body è stato ripristinato a 16mm (non serve più spazio per il footer).
+- **HTTPS con certificato self-signed**: Chrome bloccava i download PDF da HTTP come "download pericoloso". Prima tentato `Content-Disposition: inline` + `Content-Length` (non ha risolto: Chrome continuava a bloccare su HTTP). Poi implementato HTTPS:
+  - Generato certificato self-signed con `openssl` in `certs/` (`key.pem` + `cert.pem`, valido 10 anni, SAN `IP:10.11.12.8`).
+  - `server.js`: aggiunto `require('https')`, avvio cambiato da `app.listen()` a `https.createServer({key, cert}, app).listen(3344, '0.0.0.0')`.
+  - I certificati sono letti da `path.join(__dirname, 'certs', 'key.pem')` e `cert.pem`.
+  - Primo accesso: Chrome mostra "La connessione non è privata" → Avanzate → Procedi. Da quel momento l'eccezione è ricordata e i download non sono più bloccati.
+  - **Backup**: `server.js.bak_20260824` (originale pre-modifiche).
+- **Content-Disposition inline + Content-Length**: entrambi gli endpoint PDF (`/api/pdf-collaudo/:ext_sn` e `/api/outbox/:box_serial/pdf`) ora usano `Content-Disposition: inline` (invece di `attachment`) + `Content-Length` (da `fs.statSync`). Con HTTPS questo elimina l'avviso di download pericoloso.
+
 ## Stato attuale
 
 - ✅ Sistema box fully functional: creazione, modifica/eliminazione (se non spedita), spedizione con DDT opzionale, rientro con DDT per FR, spostamento FR, dashboard
@@ -160,6 +175,9 @@ refurb_label_App/
 - ✅ Link "verifica FR" da Crea Box (chip) e Consulta Box (tabella) → pagina Stampa
 - ✅ Gestione FR fuori scatola (deposito): assegnazione/spostamento da Verifica & Stampa e da tab Deposito
 - ✅ Servizio systemd attivo e funzionante
+- ✅ **HTTPS** attivo su `https://10.11.12.8:3344` (certificato self-signed, eccezione da accettare al primo accesso browser)
+- ✅ PDF distinta box: data spedizione visibile, paginazione 20 FR/pagina, footer rimosso
+- ✅ Download PDF non più bloccati da Chrome (HTTPS + Content-Disposition inline)
 - ✅ Tutte le modifiche committate e pushate su `origin/main`
 
 ## TODO / questioni aperte
@@ -194,3 +212,32 @@ refurb_label_App/
 - **Promote vs creazione manuale**: il promote sposta in blocco gli FR rientrati in una nuova box uscita_cliente; la creazione manuale (scan FR) resta disponibile per le spedizioni mirate con pochi pezzi.
 - **Archiviazione**: si archiviano solo box vuote (0 FR); restano rintracciabili in Consulta Box (per seriale) ma spariscono dal tab Stato.
 - **Backup DB**: dump di sicurezza in `refurb_label_App/backups/` (gitignored). Ripristino: `psql -f backups/<file>.sql`
+- **HTTPS / TLS**: l'app serve su HTTPS (porta 3344) con certificato self-signed in `certs/` (valido 10 anni, SAN `IP:10.11.12.8`). Il primo accesso browser richiede accettazione manuale dell'eccezione di sicurezza. I vecchi bookmark `http://` vanno aggiornati a `https://`. I certificati non sono in git (gitignored).
+- **PDF download**: `Content-Disposition: inline` (non `attachment`) + `Content-Length` su entrambi gli endpoint PDF, per evitare blocchi di Chrome sui download. HTTPS risolve definitivamente l'avviso "download pericoloso".
+- **PDF distinta box**: paginazione a 20 FR per pagina (`page-break-after: always`); la numerazione è continua across le pagine; l'intestazione tabella si ripete su ogni pagina. Footer rimosso.
+
+## Casi in sospeso (2026-08-24, verifica reale)
+
+- **RBOX-0009 — incongruenza da indagare/risolvere**:
+  - Box uscita_terzista in stato completato ma con 0 FR associati (items vuoti).
+  - In rientri esiste un record per FR62676 rientrato da RBOX-0009 (DDT 756/26, 2026-08-11 11:49) con outbound_item_id = NULL: la riga outbound_box_items di FR62676 e stata eliminata in passato (FK ON DELETE SET NULL ha staccato l'audit).
+  - FR62676 e l'unico FR reale in device_tests (ext_sn 80000558, esito OK, techbase). Tutti gli altri FR nelle box 0001-0008/0010-0013 sono FR REALI ma non in device_tests (vedi NOTA IMPORTANTE sotto).
+  - Probabilmente test dei colleghi. Lasciata in sospeso (non modificata) in attesa di decisione: ripristinare l'item di FR62676, oppure archiviare la box vuota.
+
+- **NOTA IMPORTANTE (correzione 2026-08-24)**: gli FR associati a TUTTE le box attualmente presenti (0001-0008, 0010-0013, 288 FR) sono **FR REALI**, non dati di test. Tuttavia NON sono presenti in device_tests (l'unico FR in device_tests resta FR62676). Quindi i FR reali vengono gestiti nel sistema box senza un record di collaudo in device_tests.
+- **Conseguenza critica per RBOX-0014 (box eliminata)**: i suoi FR, essendo reali ma non in device_tests, dopo la DELETE CASCADE sono **scomparsi del tutto e non risultano in /api/deposito** (il deposito elenca solo FR presenti in device_tests non assegnati a box). Da verificare se serve un nuovo endpoint "deposito" basato sugli FR reali noti anche senza device_tests.
+
+### Sessione del 2026-08-24 (anagrafica FR + esito + modifica stato box)
+
+- **`fr_registry` (anagrafica FR)**: nuova tabella master del ciclo di vita dell'FR (fr PK, ext_sn, sn, esito, stato, tentativi, data_creazione, data_rientro, note). Disaccoppia l'FR dal collaudo: un FR esiste dalla stampa etichetta, prima di qualsiasi `device_tests`.
+  - **Stati** (`fr_registry.stato`): `deposito` | `in_box_terzista` | `in_box_cliente` | `spedito_cliente`.
+  - **Esito** (`fr_registry.esito`, manuale): `null` (in sospeso) | `riparato` | `non_riparabile`. Un NOK NON imposta automaticamente l'esito: l'operatore decide (dichiarare non riparabile o ritentare). Un OK → `riparato`.
+  - `ext_sn` attribuito dal terzista via script V2.0: parte `null`, popolato al rientro dal `device_tests`.
+  - `tentativi`: # volte spedito al terzista (incrementa a ogni spedizione, decrementa su un-ship).
+- **`outbound_boxes.esito`**: nuova colonna. `null` per `uscita_terzista`; `riparato`/`non_riparabile` per `uscita_cliente`. Le box verso cliente sono **separate** per esito (FR omogenei).
+- **Backfill**: 288 FR reali (prima spedizione al terzista, in box spedita/creato) importati in `fr_registry` (stato `in_box_terzista`, esito null). FR62676 (caso RBOX-0009) inserito manualmente (`deposito`, `riparato`, ext_sn 80000558). Totale 289 FR in anagrafica. Dati reali preservati.
+- **Endpoint nuovi**: `GET /api/fr/:fr` (storico FR: registry + collaudi + box + rientri); `PATCH /api/fr/:fr/esito` (esito manuale); `PATCH /api/outbox/:box_serial/stato` (modifica stato box: `creato`<->`spedito`; un-ship annulla `data_spedizione`+`ddt_uscita`, items→raccolto, FR tornano in deposito nella box, `tentativi` decrementati).
+- **Endpoint modificati**: `/api/print-fr` (upsert `fr_registry` stato deposito alla stampa etichetta); `/api/deposito` (riscritto su `fr_registry`: FR nel mio magazzino = sciolti/rientrati + FR in box `creato`); `/api/verify` (lookup `fr_registry` + `device_tests`; gestisce FR senza collaudo); `/api/outbox/create`+`assign`+`assign-new` (validano/creano anagrafica, sync `fr_registry.stato`, esito omogeneo per box cliente); `/api/outbox/ship` (`tentativi++` terzista / `spedito_cliente`); `/api/outbox/return` (registry→`deposito`, esito da collaudo OK=`riparato`/NOK=null, ext_sn da device_tests); `/api/outbox/:box_serial/promote` (richiede `esito`, muove solo FR con quell'esito, box cliente con esito); `DELETE` box/items (FR→`deposito` in registry, non spariscono più); `GET /api/outbox/:box_serial` + dashboard (mostrano `esito`).
+- **Frontend**: `outbox.html` — selettore esito in Crea Box (cliente), colonna Esito in Consulta Box e Deposito, tab Deposito con esito/tentativi/box, azione "dichiaro non riparabile", sezione "Annulla spedizione" (un-ship) per box spedita, prompt esito nel promote, `createEmptyBox` con tipo+esito. `index.html` — verifica mostra stato/esito FR; gestisce FR in deposito senza collaudo.
+- **Backup**: dump `backups/pre_fr_registry_20260824_125916.sql`; `server.js.bak_20260824_125916`.
+- **TODO residui**: test in produzione del flusso completo (deposito→box terzista→spedizione→collaudo→rientro→esito→box cliente separata); un-ship su box reali; storico FR/SN (vista); filtro dashboard; report/export dashboard.

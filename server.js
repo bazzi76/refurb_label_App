@@ -11,6 +11,7 @@ const path      = require('path');
 const fs        = require('fs');
 const os        = require('os');
 const { exec }  = require('child_process');
+const https     = require('https');
 
 const app  = express();
 const PORT = 3344;
@@ -30,6 +31,31 @@ const ZEBRA_IP    = '10.2.0.6';
 const ZEBRA_PORT  = 9100;          // porta RAW standard Zebra
 
 const CUPS_PRINTER = 'CollaudioA4';  // nome stampante CUPS (lpadmin -p CollaudioA4 ...)
+
+
+// ------------------------------------------------------------------------------
+// HELPERS — gestione fr_registry (anagrafica FR)
+// ------------------------------------------------------------------------------
+
+// Mappa tipo box -> stato fr_registry
+function statoForBoxTipo(tipo) {
+  if (tipo === 'uscita_cliente') return 'in_box_cliente';
+  return 'in_box_terzista';
+}
+
+// Aggiorna stato fr_registry per una lista di FR (esegue su client fornito)
+async function setFrStato(client, frs, stato) {
+  if (!frs || frs.length === 0) return;
+  await client.query(
+    `UPDATE fr_registry SET stato = $2 WHERE fr = ANY($1)`,
+    [frs, stato]
+  );
+}
+
+// Rimette gli FR in deposito (es. uscita da box via delete)
+async function setFrDeposito(client, frs) {
+  await setFrStato(client, frs, 'deposito');
+}
 
 
 // ------------------------------------------------------------------------------
@@ -464,43 +490,73 @@ app.post('/api/verify', async (req, res) => {
   try {
     client = await DB.connect();
 
-    const result = await client.query(
-      `SELECT id, sn, ext_sn, iccid, esito_test, sgw_type, data, data_stampa, fr
-       FROM device_tests
-       WHERE ${searchBy} = $1
-       ORDER BY data DESC
-       LIMIT 1`,
-      [searchVal]
-    );
+    // 1) Anagrafica FR (master)
+    let registry = null;
+    if (searchBy === 'fr') {
+      const rRes = await client.query(
+        `SELECT fr, ext_sn, sn, esito, stato, tentativi, data_creazione, data_rientro
+         FROM fr_registry WHERE fr = $1`, [searchVal]);
+      if (rRes.rows.length > 0) registry = rRes.rows[0];
+    } else {
+      // per ext_sn: trova l'FR dal collaudo più recente, poi carica registry
+      const dt = await client.query(
+        `SELECT fr FROM device_tests WHERE ext_sn = $1 AND fr IS NOT NULL ORDER BY data DESC LIMIT 1`,
+        [searchVal]);
+      if (dt.rows.length > 0) {
+        const rRes = await client.query(
+          `SELECT fr, ext_sn, sn, esito, stato, tentativi, data_creazione, data_rientro
+           FROM fr_registry WHERE fr = $1`, [dt.rows[0].fr]);
+        if (rRes.rows.length > 0) registry = rRes.rows[0];
+      }
+    }
 
-    if (result.rows.length === 0) {
+    // 2) Record di collaudo (device_tests) — più recente
+    let dataRow = null;
+    if (searchBy === 'fr') {
+      const dtRes = await client.query(
+        `SELECT id, sn, ext_sn, iccid, esito_test, sgw_type, data, data_stampa, fr
+         FROM device_tests WHERE fr = $1 ORDER BY data DESC LIMIT 1`, [searchVal]);
+      if (dtRes.rows.length > 0) dataRow = dtRes.rows[0];
+    } else {
+      const dtRes = await client.query(
+        `SELECT id, sn, ext_sn, iccid, esito_test, sgw_type, data, data_stampa, fr
+         FROM device_tests WHERE ext_sn = $1 ORDER BY data DESC LIMIT 1`, [searchVal]);
+      if (dtRes.rows.length > 0) dataRow = dtRes.rows[0];
+    }
+
+    // 3) Se ricerca per ext_sn e nessun collaudo, 404
+    if (searchBy === 'ext_sn' && !dataRow) {
+      return res.status(404).json({ ok: false, error: `Nessun record trovato per ${label}` });
+    }
+    // 4) Se ricerca per FR e non c'è neanche l'anagrafica, 404
+    if (searchBy === 'fr' && !registry && !dataRow) {
       return res.status(404).json({ ok: false, error: `Nessun record trovato per ${label}` });
     }
 
-    const row = result.rows[0];
-
-    // Box assignment dell'FR (null se in deposito / senza fr)
+    // 5) Box assignment dell'FR (null se in deposito)
     let boxAssignment = null;
-    if (row.fr) {
+    const frForBox = registry ? registry.fr : (dataRow ? dataRow.fr : null);
+    if (frForBox) {
       const boxRes = await client.query(
-        `SELECT b.box_serial, b.tipo, b.stato AS box_stato, i.stato AS item_stato
+        `SELECT b.box_serial, b.tipo, b.stato AS box_stato, b.esito AS box_esito, i.stato AS item_stato
          FROM outbound_box_items i
          JOIN outbound_boxes b ON i.box_id = b.id
          WHERE i.fr = $1
          ORDER BY i.id DESC LIMIT 1`,
-        [row.fr]
+        [frForBox]
       );
       if (boxRes.rows.length > 0) {
         boxAssignment = {
           box_serial: boxRes.rows[0].box_serial,
           tipo: boxRes.rows[0].tipo,
           box_stato: boxRes.rows[0].box_stato,
+          box_esito: boxRes.rows[0].box_esito,
           item_stato: boxRes.rows[0].item_stato,
         };
       }
     }
 
-    return res.json({ ok: true, data: row, box: boxAssignment });
+    return res.json({ ok: true, data: dataRow, registry, box: boxAssignment });
 
   } catch (err) {
     console.error('Errore verify:', err.message);
@@ -687,7 +743,8 @@ app.get('/api/pdf-collaudo/:ext_sn', async (req, res) => {
 
       const filename = `collaudo_${ext_sn}.pdf`;
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      res.setHeader('Content-Length', fs.statSync(tmpPdf).size);
 
       const stream = fs.createReadStream(tmpPdf);
       stream.pipe(res);
@@ -793,6 +850,15 @@ app.post('/api/outbox/create', async (req, res) => {
   const validTypes = ['uscita_terzista', 'rientro_terzista', 'uscita_cliente'];
   const boxTipo = validTypes.includes(tipo) ? tipo : 'uscita_terzista';
 
+  // Esito (solo per uscita_cliente): riparato / non_riparabile
+  let boxEsito = null;
+  if (boxTipo === 'uscita_cliente') {
+    boxEsito = req.body.esito;
+    if (!['riparato', 'non_riparabile'].includes(boxEsito)) {
+      return res.status(400).json({ ok: false, error: 'Per le box uscita_cliente è obbligatorio specificare esito ("riparato" o "non_riparabile").' });
+    }
+  }
+
   // Validazione lista FR
   if (!Array.isArray(frs) || frs.length === 0) {
     return res.status(400).json({ ok: false, error: 'Lista FR mancante o vuota.' });
@@ -837,6 +903,23 @@ app.post('/api/outbox/create', async (req, res) => {
       });
     }
 
+    // ── VALIDAZIONE ESITO (box uscita_cliente) ──
+    if (boxTipo === 'uscita_cliente') {
+      const esitoRes = await client.query(
+        `SELECT fr, esito FROM fr_registry WHERE fr = ANY($1)`, [cleaned]);
+      const byFr = new Map(esitoRes.rows.map(r => [r.fr, r.esito]));
+      for (const f of cleaned) {
+        const e = byFr.get(f);
+        if (e === undefined) {
+          return res.status(409).json({ ok: false, error: `FR ${f} non presente in anagrafica. Stampare prima l'etichetta FR.` });
+        }
+        if (e !== boxEsito) {
+          return res.status(409).json({ ok: false, esito_mismatch: true,
+            error: `FR ${f} ha esito "${e || 'non definito'}" ma la box è "${boxEsito}". Le box cliente devono contenere FR omogenei per esito.` });
+        }
+      }
+    }
+
     // ── CONTROLLO CROSS-BOX: FR già assegnati ad un'altra box ──
     // Include stato per distinguere: rientrato (movibile) vs spedito/raccolto (bloccato)
     const conflicts = await client.query(
@@ -871,8 +954,8 @@ app.post('/api/outbox/create', async (req, res) => {
     const isNewBox = (boxId === null);
     if (isNewBox) {
       const insertBox = await client.query(
-        'INSERT INTO outbound_boxes (box_serial, tipo) VALUES ($1, $2) RETURNING id',
-        [box_serial, boxTipo]
+        'INSERT INTO outbound_boxes (box_serial, tipo, esito) VALUES ($1, $2, $3) RETURNING id',
+        [box_serial, boxTipo, boxEsito]
       );
       boxId = insertBox.rows[0].id;
     }
@@ -903,10 +986,22 @@ app.post('/api/outbox/create', async (req, res) => {
 
     // Inserisci i nuovi FR
     for (const fr of toInsert) {
+      // Upsert anagrafica (se l'FR non esiste ancora, lo crea)
+      await client.query(
+        `INSERT INTO fr_registry (fr, stato) VALUES ($1, $2)
+         ON CONFLICT (fr) DO UPDATE SET stato = EXCLUDED.stato`,
+        [fr, statoForBoxTipo(boxTipo)]
+      );
       await client.query(
         'INSERT INTO outbound_box_items (box_id, fr) VALUES ($1, $2)',
         [boxId, fr]
       );
+    }
+
+    // Sincronizza stato fr_registry per tutti gli FR coinvolti (movimento + nuovi)
+    const allMovedFrs = toMove.map(r => r.fr).concat(toInsert);
+    if (allMovedFrs.length > 0) {
+      await setFrStato(client, allMovedFrs, statoForBoxTipo(boxTipo));
     }
 
     const addedCount  = toMove.length + toInsert.length;
@@ -1047,7 +1142,7 @@ app.get('/api/outbox/dashboard', async (req, res) => {
 
     const boxes = await client.query(`
       SELECT
-        b.id, b.box_serial, b.tipo, b.stato, b.data_creazione,
+        b.id, b.box_serial, b.tipo, b.stato, b.esito, b.data_creazione,
         b.data_spedizione, b.ddt_uscita,
         COUNT(i.id) AS fr_totali,
         COUNT(i.id) FILTER (WHERE i.stato = 'spedito') AS fr_spediti,
@@ -1068,7 +1163,7 @@ app.get('/api/outbox/dashboard', async (req, res) => {
         spediti_cliente: parseInt(summary.rows[0].spediti_cliente) || 0,
       },
       boxes: boxes.rows.map(r => ({
-        id: r.id, box_serial: r.box_serial, tipo: r.tipo, stato: r.stato,
+        id: r.id, box_serial: r.box_serial, tipo: r.tipo, stato: r.stato, esito: r.esito,
         data_creazione: r.data_creazione, data_spedizione: r.data_spedizione,
         ddt_uscita: r.ddt_uscita,
         fr_totali: parseInt(r.fr_totali) || 0,
@@ -1094,16 +1189,34 @@ app.get('/api/deposito', async (req, res) => {
   let client;
   try {
     client = await DB.connect();
+    // FR in deposito = nel mio magazzino:
+    //   - stato 'deposito' (sciolti / rientrati), OPPURE
+    //   - in box terzista/cliente con box in stato 'creato' (stadiata, non spedita)
+    // Esclude: FR in box spedita (al terzista) e FR spediti al cliente.
     const result = await client.query(
-      `SELECT DISTINCT ON (d.fr) d.fr, d.sn, d.ext_sn, d.iccid, d.esito_test, d.data
-       FROM device_tests d
-       WHERE d.fr IS NOT NULL AND d.fr <> ''
-         AND NOT EXISTS (SELECT 1 FROM outbound_box_items i WHERE i.fr = d.fr)
-       ORDER BY d.fr, d.data DESC`
+      `SELECT r.fr, r.ext_sn, r.sn, r.esito, r.tentativi,
+              r.data_creazione, r.data_rientro,
+              cb.box_serial, cb.box_tipo, cb.box_stato
+       FROM fr_registry r
+       LEFT JOIN LATERAL (
+         SELECT b.box_serial, b.tipo AS box_tipo, b.stato AS box_stato
+         FROM outbound_box_items i
+         JOIN outbound_boxes b ON b.id = i.box_id
+         WHERE i.fr = r.fr AND i.stato IN ('raccolto','spedito')
+         ORDER BY i.id DESC LIMIT 1
+       ) cb ON true
+       WHERE r.stato = 'deposito'
+          OR (r.stato = 'in_box_terzista' AND cb.box_stato = 'creato')
+          OR (r.stato = 'in_box_cliente' AND cb.box_stato = 'creato')
+       ORDER BY r.fr`
     );
     return res.json({ ok: true, count: result.rows.length, rows: result.rows.map(r => ({
-      fr: r.fr, sn: r.sn, ext_sn: r.ext_sn, iccid: r.iccid,
-      esito_test: r.esito_test, data: r.data,
+      fr: r.fr, ext_sn: r.ext_sn, sn: r.sn, esito: r.esito,
+      tentativi: r.tentativi,
+      data_creazione: r.data_creazione, data_rientro: r.data_rientro,
+      box: r.box_serial || null,
+      box_tipo: r.box_tipo || null,
+      box_stato: r.box_stato || null,
     })) });
   } catch (err) {
     console.error('Errore deposito:', err.message);
@@ -1158,7 +1271,7 @@ app.get('/api/outbox/:box_serial', async (req, res) => {
     client = await DB.connect();
 
     const boxResult = await client.query(
-      'SELECT id, box_serial, tipo, stato, data_creazione, data_spedizione, ddt_uscita, archived FROM outbound_boxes WHERE box_serial = $1',
+      'SELECT id, box_serial, tipo, stato, data_creazione, data_spedizione, ddt_uscita, archived, esito FROM outbound_boxes WHERE box_serial = $1',
       [box_serial]
     );
 
@@ -1169,10 +1282,12 @@ app.get('/api/outbox/:box_serial', async (req, res) => {
     const box = boxResult.rows[0];
 
     const itemsResult = await client.query(
-      `SELECT id, fr, stato, data_inserimento, data_rientro, ddt_rientro
-       FROM outbound_box_items
-       WHERE box_id = $1
-       ORDER BY id ASC`,
+      `SELECT i.id, i.fr, i.stato, i.data_inserimento, i.data_rientro, i.ddt_rientro,
+              r.esito AS fr_esito, r.ext_sn, r.tentativi
+       FROM outbound_box_items i
+       LEFT JOIN fr_registry r ON r.fr = i.fr
+       WHERE i.box_id = $1
+       ORDER BY i.id ASC`,
       [box.id]
     );
 
@@ -1183,6 +1298,7 @@ app.get('/api/outbox/:box_serial', async (req, res) => {
         box_serial: box.box_serial,
         tipo: box.tipo,
         stato: box.stato,
+        esito: box.esito,
         data_creazione: box.data_creazione,
         data_spedizione: box.data_spedizione,
         ddt_uscita: box.ddt_uscita,
@@ -1191,6 +1307,9 @@ app.get('/api/outbox/:box_serial', async (req, res) => {
       items: itemsResult.rows.map(r => ({
         fr: r.fr,
         stato: r.stato,
+        fr_esito: r.fr_esito,
+        ext_sn: r.ext_sn,
+        tentativi: r.tentativi,
         data_inserimento: r.data_inserimento,
         data_rientro: r.data_rientro,
         ddt_rientro: r.ddt_rientro,
@@ -1310,13 +1429,43 @@ app.get('/api/outbox/:box_serial/pdf', async (req, res) => {
 
     const frs = itemsResult.rows;
     const dataCreazione = new Date(box.data_creazione).toLocaleString('it-IT');
+    const dataSpedizione = box.data_spedizione ? new Date(box.data_spedizione).toLocaleString('it-IT') : null;
 
-    const rowsHtml = frs.map((r, i) => `
+    // Paginazione: max 20 FR per pagina
+    const PER_PAGE = 20;
+    const pages = [];
+    for (let p = 0; p < frs.length; p += PER_PAGE) {
+      pages.push(frs.slice(p, p + PER_PAGE));
+    }
+    if (pages.length === 0) pages.push([]);
+
+    const tablesHtml = pages.map((page, pi) => {
+      const rowsHtml = page.map((r, i) => {
+        const globalIndex = pi * PER_PAGE + i + 1;
+        return `
       <tr>
-        <td class="num">${i + 1}</td>
+        <td class="num">${globalIndex}</td>
         <td class="fr">${r.fr}</td>
         <td class="date">${new Date(r.data_inserimento).toLocaleString('it-IT')}</td>
-      </tr>`).join('');
+      </tr>`;
+      }).join('');
+      const isLast = pi === pages.length - 1;
+      return `
+  <div class="page-section${isLast ? '' : ' page-break'}">
+    <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Codice FR</th>
+        <th>Data inserimento</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHtml}
+    </tbody>
+    </table>
+  </div>`;
+    }).join('');
 
     const html = `<!DOCTYPE html>
 <html lang="it">
@@ -1330,6 +1479,8 @@ app.get('/api/outbox/:box_serial/pdf', async (req, res) => {
     color: #1a1a1a;
     padding: 18mm 20mm 16mm 20mm;
   }
+  .page-break { page-break-after: always; }
+  .page-section { page-break-inside: avoid; }
   .header {
     display: flex;
     align-items: center;
@@ -1386,18 +1537,6 @@ app.get('/api/outbox/:box_serial/pdf', async (req, res) => {
   td.num { color: #888; width: 40px; text-align: center; font-size: 9pt; }
   td.fr { font-family: 'Courier New', monospace; font-weight: 600; font-size: 11pt; }
   td.date { font-size: 9pt; color: #666; white-space: nowrap; }
-  .footer {
-    position: fixed;
-    bottom: 10mm;
-    left: 20mm;
-    right: 20mm;
-    border-top: 1px solid #e0e0e0;
-    padding-top: 5px;
-    font-size: 7.5pt;
-    color: #aaa;
-    display: flex;
-    justify-content: space-between;
-  }
 </style>
 </head>
 <body>
@@ -1415,26 +1554,11 @@ app.get('/api/outbox/:box_serial/pdf', async (req, res) => {
   <div class="info-box">
     <div class="row"><span class="k">Seriale box:</span><span class="v">${box_serial}</span></div>
     <div class="row"><span class="k">Data creazione:</span><span class="v">${dataCreazione}</span></div>
+    ${dataSpedizione ? `<div class="row"><span class="k">Data spedizione:</span><span class="v">${dataSpedizione}</span></div>` : ''}
     <div class="row"><span class="k">Totale FR:</span><span class="v">${frs.length}</span></div>
   </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Codice FR</th>
-        <th>Data inserimento</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${rowsHtml}
-    </tbody>
-  </table>
-
-  <div class="footer">
-    <span>Gruppo Sim Tel — Sistema Refurb Gateway</span>
-    <span>${box_serial} · ${frs.length} FR</span>
-  </div>
+  ${tablesHtml}
 
 </body>
 </html>`;
@@ -1459,7 +1583,8 @@ app.get('/api/outbox/:box_serial/pdf', async (req, res) => {
 
       const filename = `distinta_${box_serial}.pdf`;
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      res.setHeader('Content-Length', fs.statSync(tmpPdf).size);
 
       const stream = fs.createReadStream(tmpPdf);
       stream.pipe(res);
@@ -1534,6 +1659,20 @@ app.post('/api/outbox/ship', async (req, res) => {
        RETURNING fr`,
       [box.id]
     );
+
+    const shippedFrs = itemsResult.rows.map(r => r.fr);
+
+    // Sincronizza fr_registry
+    if (box.tipo === 'uscita_terzista') {
+      // primo invio al terzista: incrementa tentativi
+      await client.query(
+        `UPDATE fr_registry SET tentativi = tentativi + 1 WHERE fr = ANY($1)`,
+        [shippedFrs]
+      );
+    } else if (box.tipo === 'uscita_cliente') {
+      // spedito al cliente
+      await setFrStato(client, shippedFrs, 'spedito_cliente');
+    }
 
     return res.json({
       ok: true,
@@ -1657,11 +1796,31 @@ app.post('/api/outbox/return', async (req, res) => {
         [fr, boxRientro, item.id, ddtRientro]
       );
 
+      // Sincronizza fr_registry: torna in deposito, esito da collaudo, ext_sn
+      const dtRes = await client.query(
+        `SELECT ext_sn, sn, esito_test FROM device_tests WHERE fr = $1 ORDER BY data DESC LIMIT 1`,
+        [fr]
+      );
+      let nuovoEsito = null, extSn = null, snVal = null;
+      if (dtRes.rows.length > 0) {
+        const dt = dtRes.rows[0];
+        extSn = dt.ext_sn; snVal = dt.sn;
+        nuovoEsito = (dt.esito_test === 'OK') ? 'riparato' : null;  // NOK -> null (decisione manuale)
+      }
+      await client.query(
+        `UPDATE fr_registry
+         SET stato = 'deposito', data_rientro = NOW(), esito = $2,
+             ext_sn = COALESCE($3, ext_sn), sn = COALESCE($4, sn)
+         WHERE fr = $1`,
+        [fr, nuovoEsito, extSn, snVal]
+      );
+
       returned.push({
         fr,
         original_box: item.box_serial,
         ddt: item.ddt_uscita || '—',
         ddt_rientro: ddtRientro || '',
+        esito: nuovoEsito,
       });
       affectedBoxIds.add(item.box_id);
       boxIdToSerial.set(item.box_id, item.box_serial);
@@ -1736,6 +1895,9 @@ app.delete('/api/outbox/:box_serial/items/:fr', async (req, res) => {
       return res.status(404).json({ ok: false, error: `FR ${frNorm} non trovato nel box ${box_serial}.` });
     }
 
+    // L'FR torna in deposito nell'anagrafica
+    await setFrDeposito(client, [frNorm]);
+
     const totalItems = await client.query(
       'SELECT COUNT(*) as cnt FROM outbound_box_items WHERE box_id = $1',
       [box.id]
@@ -1791,8 +1953,17 @@ app.delete('/api/outbox/:box_serial', async (req, res) => {
     );
     const frCount = parseInt(countResult.rows[0].cnt);
 
+    // Cattura gli FR della box prima del CASCADE (verranno rimessi in deposito)
+    const frsRes = await client.query(
+      'SELECT fr FROM outbound_box_items WHERE box_id = $1', [box.id]
+    );
+    const boxFrs = frsRes.rows.map(r => r.fr);
+
     // Elimina il box (CASCADE rimuove gli items; per box 'creato' non ci sono record in rientri)
     await client.query('DELETE FROM outbound_boxes WHERE id = $1', [box.id]);
+
+    // Gli FR tornano in deposito nell'anagrafica
+    await setFrDeposito(client, boxFrs);
 
     return res.json({
       ok: true,
@@ -1815,7 +1986,7 @@ app.delete('/api/outbox/:box_serial', async (req, res) => {
 // ------------------------------------------------------------------------------
 app.patch('/api/outbox/:box_serial', async (req, res) => {
   const { box_serial } = req.params;
-  const { tipo } = req.body;
+  const { tipo, esito } = req.body;
 
   if (!box_serial || !/^RBOX-(OUT-)?\d+$/.test(box_serial)) {
     return res.status(400).json({ ok: false, error: 'Seriale box non valido. Formato atteso: RBOX-NNNN' });
@@ -1841,16 +2012,37 @@ app.patch('/api/outbox/:box_serial', async (req, res) => {
       return res.status(409).json({ ok: false, error: `Box ${box_serial} già spedito: impossibile modificarlo.` });
     }
 
+    // Esito: obbligatorio per uscita_cliente, null altrimenti
+    let newEsito = null;
+    if (tipo === 'uscita_cliente') {
+      newEsito = esito;
+      if (!['riparato', 'non_riparabile'].includes(newEsito)) {
+        return res.status(400).json({ ok: false, error: 'Per uscita_cliente è obbligatorio esito ("riparato" o "non_riparabile").' });
+      }
+      // Valida FR presenti (se la box ha FR, devono essere omogenei per esito)
+      const frsRes = await client.query(
+        `SELECT i.fr, r.esito FROM outbound_box_items i
+         LEFT JOIN fr_registry r ON r.fr = i.fr WHERE i.box_id = $1`,
+        [box.id]);
+      for (const r of frsRes.rows) {
+        if (r.esito !== newEsito) {
+          return res.status(409).json({ ok: false, esito_mismatch: true,
+            error: `FR ${r.fr} ha esito "${r.esito || 'non definito'}" ma la box sarebbe "${newEsito}".` });
+        }
+      }
+    }
+
     await client.query(
-      'UPDATE outbound_boxes SET tipo = $2 WHERE id = $1',
-      [box.id, tipo]
+      'UPDATE outbound_boxes SET tipo = $2, esito = $3 WHERE id = $1',
+      [box.id, tipo, newEsito]
     );
 
     return res.json({
       ok: true,
-      message: `Tipo del box ${box_serial} aggiornato.`,
+      message: `Box ${box_serial} aggiornato (tipo: ${tipo}).`,
       box_serial,
       tipo,
+      esito: newEsito,
     });
 
   } catch (err) {
@@ -2049,10 +2241,13 @@ app.get('/api/outbox/:box_serial/report', async (req, res) => {
 // ------------------------------------------------------------------------------
 app.post('/api/outbox/:box_serial/promote', async (req, res) => {
   const { box_serial } = req.params;
-  const { new_box_serial } = req.body;
+  const { new_box_serial, esito } = req.body;
 
   if (!box_serial || !/^RBOX-(OUT-)?\d+$/.test(box_serial)) {
     return res.status(400).json({ ok: false, error: 'Seriale box sorgente non valido. Formato atteso: RBOX-NNNN' });
+  }
+  if (!['riparato', 'non_riparabile'].includes(esito)) {
+    return res.status(400).json({ ok: false, error: 'Parametro esito obbligatorio ("riparato" o "non_riparabile"). Le box verso cliente sono separate per esito.' });
   }
 
   let client;
@@ -2071,14 +2266,20 @@ app.post('/api/outbox/:box_serial/promote', async (req, res) => {
       return res.status(409).json({ ok: false, error: `Solo le box uscita_terzista possono essere promosse a uscita_cliente.` });
     }
 
-    // FR rientrati da spostare
+    // FR rientrati da spostare (con esito dall'anagrafica)
     const rientrati = await client.query(
-      `SELECT id FROM outbound_box_items WHERE box_id = $1 AND stato = 'rientrato'`,
+      `SELECT i.id, i.fr, r.esito
+       FROM outbound_box_items i
+       LEFT JOIN fr_registry r ON r.fr = i.fr
+       WHERE i.box_id = $1 AND i.stato = 'rientrato'`,
       [src.id]
     );
-    const itemIds = rientrati.rows.map(r => r.id);
+    // Filtra per esito richiesto
+    const matching = rientrati.rows.filter(r => r.esito === esito);
+    const itemIds = matching.map(r => r.id);
+    const movedFrs = matching.map(r => r.fr);
     if (itemIds.length === 0) {
-      return res.status(409).json({ ok: false, error: `Nessun FR rientrato in ${box_serial} da spostare.` });
+      return res.status(409).json({ ok: false, error: `Nessun FR rientrato con esito "${esito}" in ${box_serial} da spostare.` });
     }
 
     // Determina il seriale della nuova box
@@ -2101,10 +2302,10 @@ app.post('/api/outbox/:box_serial/promote', async (req, res) => {
       newSerial = `RBOX-${String(maxRes.rows[0].max_num + 1).padStart(4, '0')}`;
     }
 
-    // Crea la nuova box uscita_cliente
+    // Crea la nuova box uscita_cliente (con esito)
     const newBox = await client.query(
-      'INSERT INTO outbound_boxes (box_serial, tipo) VALUES ($1, $2) RETURNING id',
-      [newSerial, 'uscita_cliente']
+      'INSERT INTO outbound_boxes (box_serial, tipo, esito) VALUES ($1, $2, $3) RETURNING id',
+      [newSerial, 'uscita_cliente', esito]
     );
     const newBoxId = newBox.rows[0].id;
 
@@ -2114,12 +2315,16 @@ app.post('/api/outbox/:box_serial/promote', async (req, res) => {
       [newBoxId, itemIds]
     );
 
+    // Sincronizza fr_registry -> in_box_cliente
+    await setFrStato(client, movedFrs, 'in_box_cliente');
+
     return res.json({
       ok: true,
-      message: `Creata box ${newSerial} (uscita_cliente) con ${itemIds.length} FR spostati da ${box_serial}.`,
+      message: `Creata box ${newSerial} (uscita_cliente, ${esito}) con ${itemIds.length} FR spostati da ${box_serial}.`,
       new_box_serial: newSerial,
       source_box_serial: box_serial,
       moved: itemIds.length,
+      esito,
     });
 
   } catch (err) {
@@ -2208,7 +2413,7 @@ app.post('/api/outbox/assign', async (req, res) => {
     client = await DB.connect();
 
     const tgt = await client.query(
-      'SELECT id, stato, archived FROM outbound_boxes WHERE box_serial = $1',
+      'SELECT id, stato, archived, tipo, esito FROM outbound_boxes WHERE box_serial = $1',
       [target_box_serial]
     );
     if (tgt.rows.length === 0) {
@@ -2223,6 +2428,18 @@ app.post('/api/outbox/assign', async (req, res) => {
     );
     if (parseInt(tgtCount.rows[0].c) >= 24) {
       return res.status(409).json({ ok: false, error: `Box ${target_box_serial} piena (24/24).` });
+    }
+
+    // Validazione esito per box cliente
+    if (tgt.rows[0].tipo === 'uscita_cliente') {
+      const eRes = await client.query('SELECT esito FROM fr_registry WHERE fr = $1', [frNorm]);
+      const frEsito = eRes.rows.length > 0 ? eRes.rows[0].esito : undefined;
+      if (frEsito === undefined) {
+        return res.status(409).json({ ok: false, error: `FR ${frNorm} non presente in anagrafica.` });
+      }
+      if (frEsito !== tgt.rows[0].esito) {
+        return res.status(409).json({ ok: false, esito_mismatch: true, error: `FR ${frNorm} ha esito "${frEsito || 'non definito'}" ma la box è "${tgt.rows[0].esito}".` });
+      }
     }
 
     const cur = await client.query(
@@ -2244,9 +2461,16 @@ app.post('/api/outbox/assign', async (req, res) => {
         `UPDATE outbound_box_items SET box_id = $1, stato = 'raccolto', data_rientro = NULL WHERE id = $2`,
         [tgt.rows[0].id, c.id]
       );
+      await setFrStato(client, [frNorm], statoForBoxTipo(tgt.rows[0].tipo));
       return res.json({ ok: true, message: `FR ${frNorm} spostato da ${c.cur_box} a ${target_box_serial}.`, action: 'moved', target_box_serial, from: c.cur_box });
     }
 
+    // Upsert anagrafica se mancante
+    await client.query(
+      `INSERT INTO fr_registry (fr, stato) VALUES ($1, $2)
+       ON CONFLICT (fr) DO UPDATE SET stato = EXCLUDED.stato`,
+      [frNorm, statoForBoxTipo(tgt.rows[0].tipo)]
+    );
     await client.query(
       'INSERT INTO outbound_box_items (box_id, fr) VALUES ($1, $2)',
       [tgt.rows[0].id, frNorm]
@@ -2266,13 +2490,22 @@ app.post('/api/outbox/assign', async (req, res) => {
 // Crea una nuova box (next serial) del tipo dato e ci assegna l'FR. Body: { fr, tipo }
 // ------------------------------------------------------------------------------
 app.post('/api/outbox/assign-new', async (req, res) => {
-  const { fr, tipo } = req.body;
+  const { fr, tipo, esito } = req.body;
   const frNorm = fr ? String(fr).trim().toUpperCase() : null;
   if (!frNorm || !/^FR\d{5}$/.test(frNorm)) {
     return res.status(400).json({ ok: false, error: 'FR non valido. Formato atteso: FR + 5 cifre' });
   }
   const validTypes = ['uscita_terzista', 'rientro_terzista', 'uscita_cliente'];
   const boxTipo = validTypes.includes(tipo) ? tipo : 'uscita_cliente';
+
+  // Esito per box cliente
+  let boxEsito = null;
+  if (boxTipo === 'uscita_cliente') {
+    boxEsito = esito;
+    if (!['riparato', 'non_riparabile'].includes(boxEsito)) {
+      return res.status(400).json({ ok: false, error: 'Per le box uscita_cliente è obbligatorio esito ("riparato" o "non_riparabile").' });
+    }
+  }
 
   let client;
   try {
@@ -2288,6 +2521,18 @@ app.post('/api/outbox/assign-new', async (req, res) => {
       return res.status(409).json({ ok: false, error: `FR ${frNorm} e in lavorazione (spedito in ${cur.rows[0].cur_box}).` });
     }
 
+    // Validazione esito per box cliente
+    if (boxTipo === 'uscita_cliente') {
+      const eRes = await client.query('SELECT esito FROM fr_registry WHERE fr = $1', [frNorm]);
+      const frEsito = eRes.rows.length > 0 ? eRes.rows[0].esito : undefined;
+      if (frEsito === undefined) {
+        return res.status(409).json({ ok: false, error: `FR ${frNorm} non presente in anagrafica.` });
+      }
+      if (frEsito !== boxEsito) {
+        return res.status(409).json({ ok: false, esito_mismatch: true, error: `FR ${frNorm} ha esito "${frEsito || 'non definito'}" ma la nuova box è "${boxEsito}".` });
+      }
+    }
+
     const maxRes = await client.query(`
       SELECT COALESCE(MAX(CAST(SUBSTRING(box_serial FROM 'RBOX-(?:OUT-)?(\\d+)') AS INTEGER)), 0) AS max_num
       FROM outbound_boxes WHERE box_serial ~ '^RBOX-(?:OUT-)?\\d+$'
@@ -2295,8 +2540,8 @@ app.post('/api/outbox/assign-new', async (req, res) => {
     const newSerial = `RBOX-${String(maxRes.rows[0].max_num + 1).padStart(4, '0')}`;
 
     const newBox = await client.query(
-      'INSERT INTO outbound_boxes (box_serial, tipo) VALUES ($1, $2) RETURNING id',
-      [newSerial, boxTipo]
+      'INSERT INTO outbound_boxes (box_serial, tipo, esito) VALUES ($1, $2, $3) RETURNING id',
+      [newSerial, boxTipo, boxEsito]
     );
 
     if (cur.rows.length > 0) {
@@ -2304,8 +2549,14 @@ app.post('/api/outbox/assign-new', async (req, res) => {
         `UPDATE outbound_box_items SET box_id = $1, stato = 'raccolto', data_rientro = NULL WHERE id = $2`,
         [newBox.rows[0].id, cur.rows[0].id]
       );
+      await setFrStato(client, [frNorm], statoForBoxTipo(boxTipo));
       return res.json({ ok: true, message: `Creata box ${newSerial} (${boxTipo}); FR ${frNorm} spostato da ${cur.rows[0].cur_box}.`, new_box_serial: newSerial, action: 'moved', from: cur.rows[0].cur_box });
     }
+    await client.query(
+      `INSERT INTO fr_registry (fr, stato) VALUES ($1, $2)
+       ON CONFLICT (fr) DO UPDATE SET stato = EXCLUDED.stato`,
+      [frNorm, statoForBoxTipo(boxTipo)]
+    );
     await client.query(
       'INSERT INTO outbound_box_items (box_id, fr) VALUES ($1, $2)',
       [newBox.rows[0].id, frNorm]
@@ -2325,9 +2576,16 @@ app.post('/api/outbox/assign-new', async (req, res) => {
 // Crea una box vuota (next serial) del tipo dato. Body: { tipo }
 // ------------------------------------------------------------------------------
 app.post('/api/outbox/create-empty', async (req, res) => {
-  const { tipo } = req.body;
+  const { tipo, esito } = req.body;
   const validTypes = ['uscita_terzista', 'rientro_terzista', 'uscita_cliente'];
   const boxTipo = validTypes.includes(tipo) ? tipo : 'uscita_cliente';
+  let boxEsito = null;
+  if (boxTipo === 'uscita_cliente') {
+    boxEsito = esito;
+    if (!['riparato', 'non_riparabile'].includes(boxEsito)) {
+      return res.status(400).json({ ok: false, error: 'Per le box uscita_cliente è obbligatorio esito ("riparato" o "non_riparabile").' });
+    }
+  }
   let client;
   try {
     client = await DB.connect();
@@ -2337,12 +2595,189 @@ app.post('/api/outbox/create-empty', async (req, res) => {
     `);
     const newSerial = `RBOX-${String(maxRes.rows[0].max_num + 1).padStart(4, '0')}`;
     await client.query(
-      'INSERT INTO outbound_boxes (box_serial, tipo) VALUES ($1, $2)',
-      [newSerial, boxTipo]
+      'INSERT INTO outbound_boxes (box_serial, tipo, esito) VALUES ($1, $2, $3)',
+      [newSerial, boxTipo, boxEsito]
     );
     return res.json({ ok: true, message: `Box ${newSerial} (${boxTipo}) creata.`, new_box_serial: newSerial });
   } catch (err) {
     console.error('Errore outbox/create-empty:', err.message);
+    return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// ------------------------------------------------------------------------------
+// API — PATCH /api/outbox/:box_serial/stato
+// Modifica lo stato di una box. Transizioni ammesse:
+//   creato -> spedito  (equivale a /ship; DDT opzionale nel body)
+//   spedito -> creato  (un-ship: annulla spedizione errata; ddt_uscita cancellato)
+// Body: { stato: 'creato'|'spedito', ddt?: '...' }
+// ------------------------------------------------------------------------------
+app.patch('/api/outbox/:box_serial/stato', async (req, res) => {
+  const { box_serial } = req.params;
+  const { stato: newStato, ddt } = req.body;
+
+  if (!box_serial || !/^RBOX-(OUT-)?\d+$/.test(box_serial)) {
+    return res.status(400).json({ ok: false, error: 'Seriale box non valido. Formato atteso: RBOX-NNNN' });
+  }
+  if (!['creato', 'spedito'].includes(newStato)) {
+    return res.status(400).json({ ok: false, error: 'Stato non valido. Ammessi: creato | spedito' });
+  }
+
+  let client;
+  try {
+    client = await DB.connect();
+
+    const boxRes = await client.query(
+      'SELECT id, stato, tipo FROM outbound_boxes WHERE box_serial = $1',
+      [box_serial]
+    );
+    if (boxRes.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: `Box ${box_serial} non trovato.` });
+    }
+    const box = boxRes.rows[0];
+
+    // Transizioni ammesse
+    if (box.stato === newStato) {
+      return res.status(200).json({ ok: false, message: `Box ${box_serial} già in stato ${newStato}.` });
+    }
+    if (box.stato === 'completato') {
+      return res.status(409).json({ ok: false, error: `Box ${box_serial} completata: stato non modificabile da qui.` });
+    }
+    // creato -> spedito  oppure  spedito -> creato
+    if (!(box.stato === 'creato' && newStato === 'spedito') &&
+        !(box.stato === 'spedito' && newStato === 'creato')) {
+      return res.status(409).json({ ok: false, error: `Transizione non ammessa: ${box.stato} -> ${newStato}.` });
+    }
+
+    const itemsRes = await client.query(
+      'SELECT fr FROM outbound_box_items WHERE box_id = $1', [box.id]
+    );
+    const boxFrs = itemsRes.rows.map(r => r.fr);
+
+    if (newStato === 'spedito') {
+      // === SHIP ===
+      const ddtNorm = ddt ? String(ddt).trim() : null;
+      await client.query(
+        `UPDATE outbound_boxes SET stato = 'spedito', data_spedizione = NOW(), ddt_uscita = $2 WHERE id = $1`,
+        [box.id, ddtNorm]
+      );
+      await client.query(
+        `UPDATE outbound_box_items SET stato = 'spedito' WHERE box_id = $1`, [box.id]
+      );
+      if (box.tipo === 'uscita_terzista') {
+        await client.query(`UPDATE fr_registry SET tentativi = tentativi + 1 WHERE fr = ANY($1)`, [boxFrs]);
+      } else if (box.tipo === 'uscita_cliente') {
+        await setFrStato(client, boxFrs, 'spedito_cliente');
+      }
+      return res.json({ ok: true, message: `Box ${box_serial} spedita.`, box_serial, stato: 'spedito', fr_count: boxFrs.length });
+    } else {
+      // === UN-SHIP (spedito -> creato) ===
+      await client.query(
+        `UPDATE outbound_boxes SET stato = 'creato', data_spedizione = NULL, ddt_uscita = NULL WHERE id = $1`,
+        [box.id]
+      );
+      await client.query(
+        `UPDATE outbound_box_items SET stato = 'raccolto' WHERE box_id = $1`, [box.id]
+      );
+      if (box.tipo === 'uscita_terzista') {
+        // revert tentativi (min 0)
+        await client.query(`UPDATE fr_registry SET tentativi = GREATEST(tentativi - 1, 0) WHERE fr = ANY($1)`, [boxFrs]);
+        await setFrStato(client, boxFrs, 'in_box_terzista');
+      } else if (box.tipo === 'uscita_cliente') {
+        await setFrStato(client, boxFrs, 'in_box_cliente');
+      }
+      return res.json({ ok: true, message: `Box ${box_serial} riportata in stato 'creato'. DDT uscita cancellato, ${boxFrs.length} FR di nuovo in deposito (nella box).`, box_serial, stato: 'creato', fr_count: boxFrs.length });
+    }
+
+  } catch (err) {
+    console.error('Errore outbox/patch-stato:', err.message);
+    return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// ------------------------------------------------------------------------------
+// API — GET /api/fr/:fr
+// Storico di un FR: anagrafica + collaudi (device_tests) + box/rientri.
+// ------------------------------------------------------------------------------
+app.get('/api/fr/:fr', async (req, res) => {
+  const frNorm = String(req.params.fr).trim().toUpperCase();
+  if (!/^FR\d{5}$/.test(frNorm)) {
+    return res.status(400).json({ ok: false, error: 'FR non valido. Formato atteso: FR + 5 cifre' });
+  }
+  let client;
+  try {
+    client = await DB.connect();
+
+    const regRes = await client.query(
+      `SELECT fr, ext_sn, sn, esito, stato, tentativi, data_creazione, data_rientro, note
+       FROM fr_registry WHERE fr = $1`, [frNorm]);
+    if (regRes.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: `FR ${frNorm} non presente in anagrafica.` });
+    }
+    const registry = regRes.rows[0];
+
+    const collaudi = await client.query(
+      `SELECT id, sn, ext_sn, iccid, esito_test, sgw_type, data
+       FROM device_tests WHERE fr = $1 ORDER BY data DESC`, [frNorm]);
+
+    const boxes = await client.query(
+      `SELECT b.box_serial, b.tipo, b.stato AS box_stato, b.esito AS box_esito,
+              i.stato AS item_stato, i.data_inserimento, i.data_rientro,
+              i.ddt_rientro, b.ddt_uscita
+       FROM outbound_box_items i
+       JOIN outbound_boxes b ON b.id = i.box_id
+       WHERE i.fr = $1 ORDER BY i.id DESC`, [frNorm]);
+
+    const rientri = await client.query(
+      `SELECT id, data_rientro, box_rientro, ddt_rientro, note
+       FROM rientri WHERE fr = $1 ORDER BY id DESC`, [frNorm]);
+
+    return res.json({
+      ok: true,
+      registry,
+      collaudi: collaudi.rows,
+      boxes: boxes.rows,
+      rientri: rientri.rows,
+    });
+  } catch (err) {
+    console.error('Errore fr/storico:', err.message);
+    return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// ------------------------------------------------------------------------------
+// API — PATCH /api/fr/:fr/esito
+// Imposta manualmente l'esito di un FR (riparato / non_riparabile / null).
+// Body: { esito: 'riparato' | 'non_riparabile' | null }
+// ------------------------------------------------------------------------------
+app.patch('/api/fr/:fr/esito', async (req, res) => {
+  const frNorm = String(req.params.fr).trim().toUpperCase();
+  if (!/^FR\d{5}$/.test(frNorm)) {
+    return res.status(400).json({ ok: false, error: 'FR non valido. Formato atteso: FR + 5 cifre' });
+  }
+  let { esito } = req.body;
+  if (esito !== null && !['riparato', 'non_riparabile'].includes(esito)) {
+    return res.status(400).json({ ok: false, error: 'Esito non valido. Ammessi: riparato | non_riparabile | null' });
+  }
+  let client;
+  try {
+    client = await DB.connect();
+    const upd = await client.query(
+      `UPDATE fr_registry SET esito = $2 WHERE fr = $1 RETURNING fr, esito, stato`,
+      [frNorm, esito]
+    );
+    if (upd.rows.length === 0) {
+      return res.status(404).json({ ok: false, error: `FR ${frNorm} non presente in anagrafica.` });
+    }
+    return res.json({ ok: true, message: `Esito di ${frNorm} impostato a "${esito === null ? 'null (in sospeso)' : esito}".`, fr: frNorm, esito });
+  } catch (err) {
+    console.error('Errore fr/esito:', err.message);
     return res.status(500).json({ ok: false, error: `Errore interno: ${err.message}` });
   } finally {
     if (client) client.release();
@@ -2386,6 +2821,18 @@ app.post('/api/print-fr', async (req, res) => {
   }
 
   try {
+    // Registra l'FR in anagrafica (stato deposito) — creato al momento della stampa etichetta
+    const db = await DB.connect();
+    try {
+      await db.query(
+        `INSERT INTO fr_registry (fr, stato) VALUES ($1, 'deposito')
+         ON CONFLICT (fr) DO NOTHING`,
+        [code]
+      );
+    } finally {
+      db.release();
+    }
+
     const zpl = buildFrLabelZPL(code, copies);
     await printLabel(zpl);
     return res.json({ ok: true, message: `${copies} etichett${copies===1?'a':'e'} FR stampat${copies===1?'a':'e'}.`, fr: code, copies });
@@ -2398,8 +2845,13 @@ app.post('/api/print-fr', async (req, res) => {
 // ------------------------------------------------------------------------------
 // AVVIO
 // ------------------------------------------------------------------------------
-app.listen(PORT, () => {
-  console.log(`✓ Label app in ascolto su http://0.0.0.0:${PORT}`);
+const tlsOpts = {
+  key:  fs.readFileSync(path.join(__dirname, 'certs', 'key.pem')),
+  cert: fs.readFileSync(path.join(__dirname, 'certs', 'cert.pem')),
+};
+
+https.createServer(tlsOpts, app).listen(PORT, '0.0.0.0', () => {
+  console.log(`✓ Label app in ascolto su https://0.0.0.0:${PORT}`);
   console.log(`  DB:      10.11.12.8:5432/device_db`);
   console.log(`  Zebra:   ${ZEBRA_IP}:${ZEBRA_PORT}`);
 });
