@@ -405,9 +405,15 @@
           <button class="btn-dl green" onclick="loadAssignableBoxesDep()" style="width:auto;flex:none;padding:10px 16px;">🔄 Aggiorna box</button>
         </div>
         <div class="table-wrap">
+          <div style="margin-bottom:0.4rem;font-size:0.78rem;font-weight:600;color:var(--text2);letter-spacing:0.04em;">📦 BOX IN DEPOSITO (non spedita)</div>
           <table class="data">
-            <thead><tr><th>#</th><th>FR</th><th>Ext SN</th><th>Esito</th><th>Tent.</th><th>Box</th><th>In deposito dal</th><th>Azioni</th></tr></thead>
-            <tbody id="deposito-tbody"></tbody>
+            <thead><tr><th>Box</th><th>Tipo</th><th>Esito</th><th>FR</th><th>Apri</th></tr></thead>
+            <tbody id="deposito-boxes-tbody"></tbody>
+          </table>
+          <div style="margin:1.2rem 0 0.4rem;font-size:0.78rem;font-weight:600;color:var(--text2);letter-spacing:0.04em;">📦 FR LIBERI (senza box) — assegnabili</div>
+          <table class="data">
+            <thead><tr><th>#</th><th>FR</th><th>Ext SN</th><th>Esito</th><th>Tent.</th><th>In deposito dal</th><th>Azioni</th></tr></thead>
+            <tbody id="deposito-loose-tbody"></tbody>
           </table>
         </div>
       </div>
@@ -1148,28 +1154,63 @@
     // TAB 5: DEPOSITO (FR fuori scatola)
     // ════════════════════════════════════════════════════════════════════════════
     async function loadDeposito() {
-      const tbody = document.getElementById('deposito-tbody');
+      const bTbody = document.getElementById('deposito-boxes-tbody');
+      const lTbody = document.getElementById('deposito-loose-tbody');
       try {
         const res = await fetch('/api/deposito');
         const json = await res.json();
-        if (!json.ok) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--nok);padding:20px;">Errore caricamento</td></tr>'; return; }
-        if (json.rows.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px;">Nessun FR in deposito</td></tr>';
-          return;
-        }
-        tbody.innerHTML = '';
-        json.rows.forEach((r, i) => {
-          const tr = document.createElement('tr');
-          const boxCell = r.box ? `<span class="badge badge-creato">${r.box}</span><br><span style="font-size:0.62rem;color:var(--text3);">${r.box_stato}</span>` : '<span style="color:var(--text3);">—</span>';
-          const dt = r.data_rientro || r.data_creazione;
-          const azioni = `<button class="fr-edit-btn" onclick="assignFromDeposito('${r.fr}')" title="Assegna alla box destinazione">➡</button>` +
-            `<button class="fr-edit-btn" onclick="setFrEsito('${r.fr}','non_riparabile')" title="Dichiara non riparabile" style="margin-left:4px;color:var(--nok);">⊘</button>`;
-          tr.innerHTML = `<td class="num">${i+1}</td><td class="fr">${r.fr}</td><td style="font-size:0.72rem;">${r.ext_sn||'—'}</td><td>${esitoBadgeFr(r.esito)}</td><td style="text-align:center;">${r.tentativi||0}</td><td style="font-size:0.72rem;">${boxCell}</td><td class="date">${fmtDate(dt)}</td><td>${azioni}</td>`;
-          tbody.appendChild(tr);
+        if (!json.ok) { bTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--nok);padding:20px;">Errore caricamento</td></tr>'; lTbody.innerHTML=''; return; }
+
+        // Separa: FR in box (raggruppa per box) vs FR liberi
+        const loose = json.rows.filter(r => !r.box);
+        const boxed = json.rows.filter(r => r.box);
+
+        // --- Sezione box in deposito (una riga per box) ---
+        const boxMap = new Map();
+        boxed.forEach(r => {
+          if (!boxMap.has(r.box)) boxMap.set(r.box, { box:r.box, tipo:r.box_tipo, stato:r.box_stato, esito:r.esito, frs:[] });
+          boxMap.get(r.box).frs.push(r.fr);
         });
+        if (boxMap.size === 0) {
+          bTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:14px;">Nessuna box in deposito</td></tr>';
+        } else {
+          bTbody.innerHTML = '';
+          [...boxMap.values()].forEach(b => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td><span class="badge badge-creato">${b.box}</span> <span style="font-size:0.62rem;color:var(--text3);">${b.stato}</span></td>` +
+              `<td style="font-size:0.78rem;">${tipoLabel(b.tipo)}</td>` +
+              `<td>${b.esito ? esitoBadgeFr(b.esito) : '—'}</td>` +
+              `<td><strong>${b.frs.length}</strong> <span style="color:var(--text3);font-size:0.7rem;">FR</span></td>` +
+              `<td><button class="fr-edit-btn" onclick="openBoxInLookup('${b.box}')" title="Apri in Consulta Box">🔍</button></td>`;
+            bTbody.appendChild(tr);
+          });
+        }
+
+        // --- Sezione FR liberi ---
+        if (loose.length === 0) {
+          lTbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:14px;">Nessun FR libero</td></tr>';
+        } else {
+          lTbody.innerHTML = '';
+          loose.forEach((r, i) => {
+            const tr = document.createElement('tr');
+            const dt = r.data_rientro || r.data_creazione;
+            const azioni = `<button class="fr-edit-btn" onclick="assignFromDeposito('${r.fr}')" title="Assegna alla box destinazione">➡</button>` +
+              `<button class="fr-edit-btn" onclick="setFrEsito('${r.fr}','non_riparabile')" title="Dichiara non riparabile" style="margin-left:4px;color:var(--nok);">⊘</button>`;
+            tr.innerHTML = `<td class="num">${i+1}</td><td class="fr">${r.fr}</td><td style="font-size:0.72rem;">${r.ext_sn||'—'}</td><td>${esitoBadgeFr(r.esito)}</td><td style="text-align:center;">${r.tentativi||0}</td><td class="date">${fmtDate(dt)}</td><td>${azioni}</td>`;
+            lTbody.appendChild(tr);
+          });
+        }
       } catch(err) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--nok);padding:20px;">Errore di rete</td></tr>';
+        bTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--nok);padding:20px;">Errore di rete</td></tr>';
+        lTbody.innerHTML = '';
       }
+    }
+
+    function openBoxInLookup(serial) {
+      switchTab('lookup');
+      const inp = document.getElementById('lookup-box-input');
+      inp.value = serial.replace(/^RBOX-/, '');
+      lookupBox();
     }
 
     async function loadAssignableBoxesDep() {
