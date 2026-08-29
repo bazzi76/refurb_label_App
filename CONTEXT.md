@@ -60,7 +60,7 @@ refurb_label_App/
 | `outbound_box_items` | FR associati a ogni box | id, box_id (FK CASCADE), fr, stato, data_inserimento, data_rientro, **ddt_rientro** |
 | `rientri` | Audit trail rientri FR | id, fr, data_rientro, box_rientro, note, outbound_item_id (FK SET NULL), **ddt_rientro** |
 
-> **Stati box** (`outbound_boxes.stato`): `creato` → `spedito` → `completato` (quest'ultimo quando tutti gli FR sono rientrati).
+> **Stati box** (`outbound_boxes.stato`): `creato` → `spedito` → `in_deposito` (quest'ultimo quando tutti gli FR sono rientrati dal terzista; la box è ora "in magazzino" pronta per la fase cliente). Una box `in_deposito` può essere trasformata in `uscita_cliente` (`creato` → `spedito`). `completato` è deprecato (non più usato per le terzista; le box storiche sono state migrate a `in_deposito`).
 > **Stati FR** (`outbound_box_items.stato`): `raccolto` → `spedito` → `rientrato`.
 
 ### Endpoint API (server.js)
@@ -114,7 +114,7 @@ refurb_label_App/
 - **UX tab**: box cliccabile nel tab Stato (apre Consulta Box con auto-ricerca); autofocus e reset automatico al cambio tab su tutti i tab.
 - **Ristampa etichetta in Consulta Box**: sezione "Ristampa etichetta box" con campo copie (1-50), visibile dopo ogni consultazione.
 - **QR code etichetta box ingrandito**: magnification 6 → 10 (~17,8mm), testo spostato a x=245.
-- **Stato box dopo rientro**: `/api/outbox/return` ora aggiorna `outbound_boxes.stato` a `completato` quando tutti gli FR di una box sono rientrati (risposta include `completed_boxes`). Prima la box restava `spedito`.
+- **Stato box dopo rientro**: `/api/outbox/return` aggiorna `outbound_boxes.stato` a `in_deposito` quando tutti gli FR di una box sono rientrati (risposta include `completed_boxes`). Lo stesso per `/api/outbox/return-box` (rientro box intera). Prima la box andava a `completato` (ora deprecato).
 - **DDT di uscita opzionale e inseribile dopo**:
   - `/api/outbox/ship`: DDT ora opzionale (spedizione possibile senza DDT)
   - `PATCH /api/outbox/:box_serial/ddt`: inserisce/modifica il DDT su una box in qualsiasi stato
@@ -164,16 +164,44 @@ refurb_label_App/
   - **Backup**: `server.js.bak_20260824` (originale pre-modifiche).
 - **Content-Disposition inline + Content-Length**: entrambi gli endpoint PDF (`/api/pdf-collaudo/:ext_sn` e `/api/outbox/:box_serial/pdf`) ora usano `Content-Disposition: inline` (invece di `attachment`) + `Content-Length` (da `fs.statSync`). Con HTTPS questo elimina l'avviso di download pericoloso.
 
+
+### Sessione del 2026-08-25 (accesso DB da IP esterno per colleghi)
+
+- **Problema**: i colleghi in remoto (IP pubblico fisso `95.230.187.122`) non riuscivano a collegarsi a PostgreSQL; il firewall inoltra correttamente a `10.11.12.8`, ma PostgreSQL rifiutava l'autenticazione. Log: `FATALE: nessuna voce in pg_hba.conf per l'host "95.230.187.122", utente "tester", database "device_db"`.
+- **Diagnosi**: DB sano e raggiungibile (PostgreSQL 17 attivo, `listen_addresses = '*'`, login `tester@device_db` OK in locale). `pg_hba.conf` ammetteva solo `10.11.12.0/24`, `10.2.0.0/20`, `172.16.0.0/24`; l'IP esterno non era autorizzato.
+- **Fix**: aggiunta riga in `/etc/postgresql/17/main/pg_hba.conf` (dopo la regola `172.16.0.0/24`):
+  `host    all    all    95.230.187.122/32    scram-sha-256` + `sudo systemctl reload postgresql` (no downtime).
+- **Backup pg_hba**: `/etc/postgresql/17/main/pg_hba.conf.bak_20260825_120801`.
+- **Verifica**: regola caricata (linea 136 di `pg_hba_file_rules`); login locale `tester` ancora OK (nessuna regressione); i colleghi confermano accesso funzionante.
+- **Nota**: nessun record storico di connessione riuscita da `95.230.187.122` nei log (rotazione fino al 2026-06-15). Il "prima delle ferie funzionava" si riferiva probabilmente a un accesso diverso (rete interna / VPN ZeroTier / altro IP pubblico). In futuro, un cambio di IP pubblico dei colleghi richiederà una nuova riga `pg_hba`, oppure conviene instradarli via ZeroTier (subnet già autorizzata).
+
+### Sessione del 2026-08-29 (rientro box intera + deposito box rientrate + trasformazione in uscita_cliente)
+
+- **Concetto**: il terzista rimette gli FR lavorati nella **stessa scatola d'origine**, così l'operatore può far **rientrare la box completa** in un'unica operazione (non più solo FR-per-FR). Le box rientrate diventano **"in deposito"** su cui riorganizzare gli FR (spostare, sciogliere, riempire fino a 24) prima di spedire al cliente. Mantenuto anche il rientro FR-per-FR per i casi parziali.
+- **Nuovo stato box `in_deposito`** (sostituisce `completato` come stato "vivo" delle terzista rientrate). Ciclo: `creato` → `spedito` → `in_deposito` → (trasformazione) → `uscita_cliente` `creato` → `spedito`. `completato` non più usato per le terzista. Migrazione: RBOX-0002 e RBOX-0009 da `completato` a `in_deposito`.
+- **Nuova tabella `box_history`** (id, box_id FK CASCADE, evento, tipo_old, stato_old, tipo_new, stato_new, esito, data, note): log delle trasformazioni della box, per ricostruirne il percorso (nascita terzista → spedizione → rientro → trasformazione cliente). Endpoint `GET /api/outbox/:box_serial/history` + campo `history` in `GET /api/outbox/:box_serial`.
+- **Significato esito NULL dopo rientro** = gateway non riparato dal terzista, torna a noi per tentativo di laboratorio (NON è `non_riparabile`, che si dichiara esplicitamente solo a fine ciclo).
+- **Endpoint nuovi**: `POST /api/outbox/return-box` (rientro box intera); `POST /api/outbox/:box_serial/transform-cliente` (box `in_deposito`→`uscita_cliente` stesso seriale, **richiede omogeneità esito**, altrimenti 409 con lista FR non conformi); `GET /api/outbox/:box_serial/history`.
+- **Endpoint modificati**: `/return` (FR-per-FR) a rientro completo → `in_deposito` + `box_history`; `DELETE /items/:fr` e `DELETE /:box_serial` (gestiscono `in_deposito`: rimozione = scioglie FR; delete box bloccata con suggerimento); `/assign` (target ammessi `creato` **e** `in_deposito`; per `in_deposito` l'FR resta `rientrato`); `/deposito` (include FR in box `in_deposito`); `/assignable-boxes` (include box `in_deposito` con capienza, output con `stato`/`esito`); `PATCH /:box_serial` (tipo) e `PATCH /:box_serial/stato` (bloccano `in_deposito` con suggerimento "Trasforma in uscita cliente").
+- **Frontend `outbox.html`**: badge `in_deposito` (blu); tab Rientro con nuova card **"Rientro box intera"** (seriale + DDT opz) sopra al rientro FR singoli; tab Deposito riorganizzato in **3 sezioni** — **A** box create (non spedite al terzista), **B** box rientrate (`in_deposito`) **collassabili** (`<details>`) con lista FR + conteggi ok/sospesi/non-rip + azioni (sposta FR alla box destinazione, sciogli FR, dichiara non riparabile, trasforma in uscita cliente, apri in Consulta), **C** FR liberi; Consulta Box con sezione **"Trasforma in uscita cliente"**, sezione **"Storico box"** (timeline eventi), rimozione FR (x) abilitata per `in_deposito`.
+- **Backup**: `backups/pre_in_deposito_20260829_101350.sql`; `server.js.bak_20260829_101350`; `public/outbox.html.bak_20260829_101350`.
+- **Test end-to-end** (su box temporanea RBOX-9999/9998 con FR finti, poi puliti): create -> ship -> return-box -> set esiti -> transform (fail per non conforme) -> sciogli FR -> transform OK -> spostamento FR tra box `in_deposito`. Tutto verificato; dati di test rimossi; RBOX-0009 ripristinata a 0 FR.
+- **TODO residui**: test in produzione del flusso completo su box reali (rientro box intera, spostamento FR, trasformazione); caso RBOX-0009 (box vuota in_deposito, decidere se archiviarla); storico FR/SN (vista); filtro dashboard; report/export dashboard.
+
 ## Stato attuale
 
 - ✅ Sistema box fully functional: creazione, modifica/eliminazione (se non spedita), spedizione con DDT opzionale, rientro con DDT per FR, spostamento FR, dashboard
-- ✅ Workflow completo verificato: terzista → rientro → box `completato` (test end-to-end con API)
+- ✅ Workflow completo verificato: terzista → rientro → box `in_deposito` (test end-to-end con API)
 - ✅ Etichetta box Zebra con QR ingrandito + ristampa da Consulta Box
 - ✅ DDT di uscita opzionale + inseribile/modificabile dopo la spedizione
 - ✅ DDT di rientro per singolo FR (inseribile e modificabile)
 - ✅ Ricerca verifica per SN o FR; FR in riepilogo e report (N/A per record storici)
 - ✅ Link "verifica FR" da Crea Box (chip) e Consulta Box (tabella) → pagina Stampa
 - ✅ Gestione FR fuori scatola (deposito): assegnazione/spostamento da Verifica & Stampa e da tab Deposito
+- ✅ **Rientro box intera** dal terzista (`/api/outbox/return-box`) + rientro FR-per-FR mantenuto
+- ✅ **Deposito box rientrate** (`in_deposito`): spostamento FR tra box, scioglimento FR, riempimento fino a 24, sezione collassabile nel tab Deposito
+- ✅ **Trasformazione box `in_deposito` → `uscita_cliente`** (stesso seriale, storico preservato via `box_history`), con validazione omogeneità esito
+- ✅ **`box_history`**: storico eventi box (migrazione, rientro, trasformazione) + endpoint `/history`
 - ✅ Servizio systemd attivo e funzionante
 - ✅ **HTTPS** attivo su `https://10.11.12.8:3344` (certificato self-signed, eccezione da accettare al primo accesso browser)
 - ✅ PDF distinta box: data spedizione visibile, paginazione 20 FR/pagina, footer rimosso
@@ -202,6 +230,7 @@ refurb_label_App/
 - **Regex seriali**: il sistema accetta sia `RBOX-NNNN` (nuovo) che `RBOX-OUT-NNNN` (legacy) — regex `^RBOX-(OUT-)?\d+$`
 - **Regex FR**: `^FR\d{5}$` (es. FR62676). Case-insensitive (normalizzato a uppercase).
 - **Credenziali DB**: hardcoded in `server.js` (host, user, password) — non in file `.env`
+- **Accesso DB da remoto (pg_hba.conf)**: i client esterni devono essere autorizzati in `/etc/postgresql/17/main/pg_hba.conf` (subnet/IP ammessi: `10.11.12.0/24`, `10.2.0.0/20`, `172.16.0.0/24`, `95.230.187.122/32`) con `scram-sha-256`; dopo una modifica serve `sudo systemctl reload postgresql`. Un IP pubblico non autorizzato produce `FATALE: nessuna voce in pg_hba.conf per l'host ...` anche se il firewall inoltra correttamente. Backup pg_hba in `.bak_*`.
 - **Chromium**: richiesto installato sul server per generazione PDF (`chromium --headless`)
 - **Zebra**: connessione TCP RAW su 10.2.0.6:9100, timeout 5 secondi
 - **CUPS**: stampante A4 configurata come `CollaudioA4`
@@ -210,6 +239,8 @@ refurb_label_App/
 - **Script bash V2.0**: eseguito da WSL, richiede `sshpass` e `postgresql-client`; lo script si collega via SSH al gateway (utente `sgw`) e scrive nel DB remoto
 - **DDT rientro vs uscita**: DDT di uscita è a livello di box (`outbound_boxes.ddt_uscita`); DDT di rientro è a livello di FR (`outbound_box_items.ddt_rientro` + audit in `rientri.ddt_rientro`) — perché una box può rientrare parzialmente/in tempi diversi.
 - **Promote vs creazione manuale**: il promote sposta in blocco gli FR rientrati in una nuova box uscita_cliente; la creazione manuale (scan FR) resta disponibile per le spedizioni mirate con pochi pezzi.
+- **in_deposito vs trasformazione vs promote**: una box terzista rientrata va in stato `in_deposito`. Da lì: (a) **trasformazione** (`/transform-cliente`) la converte in `uscita_cliente` **mantenendo lo stesso seriale** e lo storico (`box_history`), richiedendo esito omogeneo; (b) **promote** crea una **nuova** box `uscita_cliente` spostando gli FR rientrati di un dato esito, lasciando la terzista vuota come storico (poi archiviabile). Sui FR di una box `in_deposito` si può operare (spostare ad altra box `in_deposito`/`creato`, sciogliere → FR libero, dichiarare non riparabile) prima di spedire al cliente.
+- **Eliminazione box `in_deposito`**: non ammessa via API (la box ha storico di spedizione/rientro). Per rimuoverla: spostare/sciogliere tutti gli FR, poi archiviare la box vuota. La cancellazione diretta è riservata alle box `creato`.
 - **Archiviazione**: si archiviano solo box vuote (0 FR); restano rintracciabili in Consulta Box (per seriale) ma spariscono dal tab Stato.
 - **Backup DB**: dump di sicurezza in `refurb_label_App/backups/` (gitignored). Ripristino: `psql -f backups/<file>.sql`
 - **HTTPS / TLS**: l'app serve su HTTPS (porta 3344) con certificato self-signed in `certs/` (valido 10 anni, SAN `IP:10.11.12.8`). Il primo accesso browser richiede accettazione manuale dell'eccezione di sicurezza. I vecchi bookmark `http://` vanno aggiornati a `https://`. I certificati non sono in git (gitignored).

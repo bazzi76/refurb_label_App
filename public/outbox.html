@@ -93,6 +93,14 @@
     .badge-rientrato { background:var(--ok-dim); color:var(--ok); border:1px solid rgba(63,185,80,0.3); }
     .badge-archiviata { background:var(--bg3); color:var(--text3); border:1px solid var(--border2); text-decoration:line-through; }
     .badge-raccolto { background:var(--bg3); color:var(--text2); border:1px solid var(--border); }
+    .badge-in-deposito { background:#dcefff; color:#1a73e8; border:1px solid rgba(26,115,232,0.3); }
+    details.box-rientro { border:1px solid var(--border); border-radius:8px; margin-bottom:8px; background:var(--bg); overflow:hidden; }
+    details.box-rientro[open] { border-color:rgba(26,115,232,0.4); }
+    details.box-rientro > summary { list-style:none; cursor:pointer; padding:10px 14px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    details.box-rientro > summary::-webkit-details-marker { display:none; }
+    details.box-rientro > summary:hover { background:var(--bg2); }
+    .box-rientro-body { padding:6px 14px 14px; border-top:1px solid var(--border); }
+    .fr-pill { display:inline-block; font-family:var(--mono); font-size:0.72rem; padding:2px 8px; border-radius:4px; border:1px solid var(--border); background:var(--bg2); margin:2px; white-space:nowrap; }
     .ship-section { margin-top:1rem; padding:1rem; background:var(--bg3); border:1px solid var(--border); border-radius:6px; display:none; }
     .ship-section.visible { display:block; }
     .ship-section .ddt-input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--mono); font-size:0.9rem; padding:10px 14px; outline:none; margin-bottom:10px; }
@@ -291,11 +299,26 @@
 
         <!-- PROMOTE: crea box uscita_cliente dai FR rientrati (solo box uscita_terzista con FR rientrati) -->
         <div class="ship-section" id="promote-section">
-          <div style="font-size:0.85rem;font-weight:600;color:var(--accent);margin-bottom:8px;">➡ Spedisci al cliente</div>
+          <div style="font-size:0.85rem;font-weight:600;color:var(--accent);margin-bottom:8px;">➡ Spedisci al cliente (nuova box)</div>
           <p style="font-size:0.8rem;color:var(--text2);margin-bottom:10px;">Crea una nuova box <strong>uscita_cliente</strong> spostando in blocco tutti gli FR rientrati di questa box. La box corrente rimarrà come storico (vuota) e potrai archiviarla.</p>
           <button class="btn-primary" id="promote-btn" onclick="promoteToCliente()" style="margin-top:0;">
             <div class="spinner"></div><span class="btn-text">➡ Crea box uscita_cliente</span>
           </button>
+        </div>
+
+        <!-- TRANSFORM: trasforma box in_deposito in uscita_cliente (stesso seriale) -->
+        <div class="ship-section" id="transform-section">
+          <div style="font-size:0.85rem;font-weight:600;color:#1a73e8;margin-bottom:8px;">🔄 Trasforma in uscita cliente (stesso seriale)</div>
+          <p style="font-size:0.8rem;color:var(--text2);margin-bottom:10px;">La box rientrata diventa una <strong>uscita_cliente</strong> mantenendo lo stesso seriale e lo storico. Richiede che tutti gli FR abbiano lo stesso esito (omogenei): sposta/sciogli prima gli FR non conformi. Dopo la trasformazione la box sarà <strong>creato</strong> e pronta per la spedizione al cliente.</p>
+          <button class="btn-primary" id="transform-btn" onclick="transformToCliente(lookupBoxSerial)" style="margin-top:0;">
+            <div class="spinner"></div><span class="btn-text">🔄 Trasforma in uscita cliente</span>
+          </button>
+        </div>
+
+        <!-- STORICO BOX (box_history) -->
+        <div class="ship-section" id="history-section">
+          <div style="font-size:0.85rem;font-weight:600;color:var(--text2);margin-bottom:8px;">📜 Storico box</div>
+          <div id="history-body" style="font-size:0.78rem;font-family:var(--mono);"></div>
         </div>
 
         <!-- ARCHIVIA BOX (box vuote) -->
@@ -334,8 +357,32 @@
 
     <!-- TAB: RIENTRO -->
     <div class="tab-panel" id="tab-return">
+      <!-- RIENTRO BOX INTERO -->
       <div class="card">
-        <label class="field-label" for="return-box-input">Box di rientro (opzionale)</label>
+        <h2 style="font-size:1rem;font-weight:600;margin-bottom:0.25rem;">📦 Rientro box intera</h2>
+        <p class="hint" style="margin-bottom:1rem;">// il terzista rimette gli FR nella stessa scatola d'origine. Inserisci il seriale della box spedita al terzista: tutti i suoi FR vengono marcati rientrati in un'unica operazione e la box passa in <strong>deposito</strong> (pronta per la fase cliente).</p>
+        <label class="field-label" for="retbox-whole-input">Box in rientro (seriale)</label>
+        <div class="box-input-wrap" style="margin-bottom:1rem;">
+          <div class="box-prefix">RBOX-</div>
+          <input type="text" id="retbox-whole-input" maxlength="10" placeholder="NNNN" autocomplete="off" inputmode="numeric" autofocus>
+        </div>
+        <label class="field-label" for="retbox-whole-ddt">DDT di rientro (opzionale)</label>
+        <input type="text" id="retbox-whole-ddt" placeholder="es. DDT-2026-001 (opzionale)" autocomplete="off"
+          style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.9rem;padding:10px 14px;outline:none;margin-bottom:1rem;">
+        <button class="btn-primary" id="retbox-whole-btn" onclick="returnBoxIntero()">
+          <div class="spinner"></div><span class="btn-text">📦 Rientro box intera</span>
+        </button>
+        <div class="result" id="retbox-whole-result">
+          <div class="result-header" id="retbox-whole-result-header"></div>
+          <div class="result-body" id="retbox-whole-result-body"></div>
+        </div>
+      </div>
+
+      <!-- RIENTRO FR SINGOLI -->
+      <div class="card" style="margin-top:1rem;">
+        <h2 style="font-size:1rem;font-weight:600;margin-bottom:0.25rem;">↩️ Rientro FR singoli</h2>
+        <p class="hint" style="margin-bottom:1rem;">// rientro parziale: registra solo alcuni FR di una box (uno per riga).</p>
+      <label class="field-label" for="return-box-input">Box di rientro (opzionale)</label>
         <div class="box-input-wrap">
           <div class="box-prefix">RBOX-</div>
           <input type="text" id="return-box-input" maxlength="10" placeholder="NNNN (oppure vuoto)" autocomplete="off" inputmode="numeric">
@@ -391,7 +438,7 @@
     <div class="tab-panel" id="tab-deposito">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:8px;">
-          <h2 style="font-size:1rem;font-weight:600;">FR in deposito (fuori scatola)</h2>
+          <h2 style="font-size:1rem;font-weight:600;">Gestione deposito</h2>
           <div style="display:flex;gap:8px;">
             <button class="btn-dl" onclick="loadDeposito()" style="width:auto;flex:none;padding:8px 16px;">🔄 Aggiorna</button>
             <button class="btn-dl" onclick="createEmptyBox()" style="width:auto;flex:none;padding:8px 16px;">➕ Crea box vuota</button>
@@ -399,18 +446,20 @@
         </div>
         <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:1rem;flex-wrap:wrap;">
           <div style="flex:1;min-width:240px;">
-            <label class="field-label" for="dep-target-select">Box destinazione (con capienza)</label>
+            <label class="field-label" for="dep-target-select">Box destinazione (con capienza — creato o in deposito)</label>
             <select id="dep-target-select"></select>
           </div>
           <button class="btn-dl green" onclick="loadAssignableBoxesDep()" style="width:auto;flex:none;padding:10px 16px;">🔄 Aggiorna box</button>
         </div>
         <div class="table-wrap">
-          <div style="margin-bottom:0.4rem;font-size:0.78rem;font-weight:600;color:var(--text2);letter-spacing:0.04em;">📦 BOX IN DEPOSITO (non spedita)</div>
+          <div style="margin-bottom:0.4rem;font-size:0.78rem;font-weight:600;color:var(--text2);letter-spacing:0.04em;">🚚 A — BOX IN USCITA AL TERZISTA (creata, non spedita)</div>
           <table class="data">
             <thead><tr><th>Box</th><th>Tipo</th><th>Esito</th><th>FR</th><th>Apri</th></tr></thead>
             <tbody id="deposito-boxes-tbody"></tbody>
           </table>
-          <div style="margin:1.2rem 0 0.4rem;font-size:0.78rem;font-weight:600;color:var(--text2);letter-spacing:0.04em;">📦 FR LIBERI (senza box) — assegnabili</div>
+          <div style="margin:1.4rem 0 0.4rem;font-size:0.78rem;font-weight:600;color:#1a73e8;letter-spacing:0.04em;">📦 B — BOX RIENTRATE DAL TERZISTA (in deposito, collassabili)</div>
+          <div id="deposito-rientrate-wrap" style="font-size:0.85rem;"></div>
+          <div style="margin:1.4rem 0 0.4rem;font-size:0.78rem;font-weight:600;color:var(--text2);letter-spacing:0.04em;">📦 FR LIBERI (senza box) — assegnabili / gestibili</div>
           <table class="data">
             <thead><tr><th>#</th><th>FR</th><th>Ext SN</th><th>Esito</th><th>Tent.</th><th>In deposito dal</th><th>Azioni</th></tr></thead>
             <tbody id="deposito-loose-tbody"></tbody>
@@ -467,6 +516,8 @@
         document.getElementById('promote-section').classList.remove('visible');
         document.getElementById('archive-section').classList.remove('visible');
         document.getElementById('unship-section').classList.remove('visible');
+        document.getElementById('transform-section').classList.remove('visible');
+        document.getElementById('history-section').classList.remove('visible');
         document.getElementById('add-fr-input').value = '';
         document.getElementById('edit-tipo-select').value = 'uscita_terzista';
         lookupInput.focus();
@@ -475,7 +526,8 @@
         returnFrInput.value = '';
         document.getElementById('return-ddt-input').value = '';
         document.getElementById('return-result').style.display = 'none';
-        returnBoxInput.focus();
+        document.getElementById('retbox-whole-result').style.display = 'none';
+        retboxWholeInput.focus();
       }
     }
 
@@ -499,6 +551,7 @@
       const map = {
         'creato':    '<span class="badge badge-creato">CREATO</span>',
         'spedito':   '<span class="badge badge-spedito">SPEDITO</span>',
+        'in_deposito':'<span class="badge badge-in-deposito">IN DEPOSITO</span>',
         'completato':'<span class="badge badge-completato">COMPLETATO</span>',
         'raccolto':  '<span class="badge badge-raccolto">RACCOLTO</span>',
         'rientrato': '<span class="badge badge-rientrato">RIENTRATO</span>',
@@ -687,6 +740,8 @@
       document.getElementById('cliente-report-section').style.display = 'none';
       document.getElementById('promote-section').classList.remove('visible');
       document.getElementById('archive-section').classList.remove('visible');
+      document.getElementById('transform-section').classList.remove('visible');
+      document.getElementById('history-section').classList.remove('visible');
 
       try {
         const res = await fetch(`/api/outbox/${encodeURIComponent(box_serial)}`);
@@ -712,7 +767,7 @@
         // Tabella FR
         const tbody = document.getElementById('lookup-tbody');
         tbody.innerHTML = '';
-        const isEditable = (json.box.stato === 'creato');
+        const isEditable = (json.box.stato === 'creato' || json.box.stato === 'in_deposito');
         json.items.forEach((item, i) => {
           const tr = document.createElement('tr');
           const ddtRientroCell = (item.stato === 'rientrato')
@@ -736,12 +791,48 @@
           document.getElementById('cliente-report-section').style.display = 'none';
         }
 
-        // Promote: box uscita_terzista con almeno un FR rientrato
+        // Promote: box uscita_terzista con almeno un FR rientrato (ma non in_deposito, dove si usa transform)
         const hasRientrato = json.items.some(i => i.stato === 'rientrato');
-        if (json.box.tipo === 'uscita_terzista' && hasRientrato) {
+        if (json.box.tipo === 'uscita_terzista' && hasRientrato && json.box.stato !== 'in_deposito') {
           document.getElementById('promote-section').classList.add('visible');
         } else {
           document.getElementById('promote-section').classList.remove('visible');
+        }
+
+        // Transform: box uscita_terzista in stato in_deposito
+        if (json.box.tipo === 'uscita_terzista' && json.box.stato === 'in_deposito') {
+          document.getElementById('transform-section').classList.add('visible');
+        } else {
+          document.getElementById('transform-section').classList.remove('visible');
+        }
+
+        // Storico box (box_history)
+        if (json.history && json.history.length > 0) {
+          const evMap = {
+            'migrate_completato_in_deposito': 'Migrazione completato→in_deposito',
+            'rientro_completo': 'Rientro completo (FR-per-FR)',
+            'rientro_box_intero': 'Rientro box intera',
+            'transform_cliente': 'Trasformazione in uscita_cliente',
+          };
+          let h = '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+            '<th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);color:var(--text3);font-size:0.68rem;">Data</th>' +
+            '<th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);color:var(--text3);font-size:0.68rem;">Evento</th>' +
+            '<th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);color:var(--text3);font-size:0.68rem;">Stato</th>' +
+            '<th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--border);color:var(--text3);font-size:0.68rem;">Esito</th></tr></thead><tbody>';
+          json.history.forEach(hv => {
+            const statoCell = (hv.stato_old && hv.stato_new) ? `${hv.stato_old} → ${hv.stato_new}` : (hv.stato_new || hv.stato_old || '');
+            const tipoCell = (hv.tipo_old && hv.tipo_new && hv.tipo_old !== hv.tipo_new) ? `${hv.tipo_old} → ${hv.tipo_new}` : '';
+            h += `<tr><td style="padding:4px 6px;color:var(--text2);">${fmtDate(hv.data)}</td>` +
+              `<td style="padding:4px 6px;">${evMap[hv.evento] || hv.evento}${tipoCell ? '<br><span style="color:var(--text3);font-size:0.66rem;">'+tipoCell+'</span>' : ''}</td>` +
+              `<td style="padding:4px 6px;color:var(--text2);">${statoCell}</td>` +
+              `<td style="padding:4px 6px;">${hv.esito || '—'}</td></tr>`;
+          });
+          h += '</tbody></table>';
+          if (json.box.note || true) {}  // no-op
+          document.getElementById('history-body').innerHTML = h;
+          document.getElementById('history-section').classList.add('visible');
+        } else {
+          document.getElementById('history-section').classList.remove('visible');
         }
 
         // Archiviazione: box vuota (0 FR) oppure gia archiviata
@@ -1051,6 +1142,49 @@
     // ════════════════════════════════════════════════════════════════════════════
     // TAB 3: RIENTRO
     // ════════════════════════════════════════════════════════════════════════════
+    const retboxWholeInput = document.getElementById('retbox-whole-input');
+    const retboxWholeBtn   = document.getElementById('retbox-whole-btn');
+    retboxWholeInput.addEventListener('input', () => { retboxWholeInput.value = retboxWholeInput.value.replace(/\D/g,'').slice(0,10); });
+    retboxWholeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') returnBoxIntero(); });
+
+    function setRetboxWholeLoading(on) { retboxWholeBtn.disabled = on; retboxWholeBtn.classList.toggle('loading', on); }
+    function showRetboxWholeResult(type, title, message) {
+      const r = document.getElementById('retbox-whole-result');
+      r.style.display = 'block'; r.className = `result ${type}`;
+      document.getElementById('retbox-whole-result-header').textContent = title;
+      document.getElementById('retbox-whole-result-body').innerHTML = message;
+    }
+
+    async function returnBoxIntero() {
+      const suffix = retboxWholeInput.value.trim();
+      if (!suffix) { retboxWholeInput.focus(); retboxWholeInput.style.outline='2px solid var(--nok)'; setTimeout(()=>retboxWholeInput.style.outline='',800); return; }
+      const box_serial = 'RBOX-' + suffix;
+      const ddt_rientro = document.getElementById('retbox-whole-ddt').value.trim();
+      setRetboxWholeLoading(true);
+      document.getElementById('retbox-whole-result').style.display = 'none';
+      try {
+        const res = await fetch('/api/outbox/return-box', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ box_serial, ddt_rientro: ddt_rientro || null })
+        });
+        const json = await res.json();
+        if (json.ok) {
+          let html = `<strong>Box:</strong> ${json.box_serial} → ${statoBadge(json.new_stato)}<br>` +
+            `<strong>FR rientrati:</strong> ${json.returned_count}<br>` +
+            `<strong>Riparati:</strong> <span style="color:var(--ok);font-weight:600;">${json.riparati}</span> &nbsp; ` +
+            `<strong>Non riparati (esito sospeso):</strong> <span style="color:var(--warn);font-weight:600;">${json.non_riparati}</span>`;
+          if (json.ddt_rientro) html += `<br><strong>DDT rientro:</strong> ${json.ddt_rientro}`;
+          showRetboxWholeResult('ok','📦 RIENTRO BOX REGISTRATO', html);
+          retboxWholeInput.value = '';
+          document.getElementById('retbox-whole-ddt').value = '';
+        } else {
+          showRetboxWholeResult('nok','✕ ERRORE', json.error);
+        }
+      } catch(err) {
+        showRetboxWholeResult('nok','✕ ERRORE DI RETE','Impossibile contattare il server.');
+      } finally { setRetboxWholeLoading(false); }
+    }
+
     const returnBoxInput = document.getElementById('return-box-input');
     const returnFrInput  = document.getElementById('return-fr-input');
     const returnBtn      = document.getElementById('return-btn');
@@ -1156,28 +1290,28 @@
     async function loadDeposito() {
       const bTbody = document.getElementById('deposito-boxes-tbody');
       const lTbody = document.getElementById('deposito-loose-tbody');
+      const rWrap  = document.getElementById('deposito-rientrate-wrap');
       try {
         const res = await fetch('/api/deposito');
         const json = await res.json();
-        if (!json.ok) { bTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--nok);padding:20px;">Errore caricamento</td></tr>'; lTbody.innerHTML=''; return; }
+        if (!json.ok) { bTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--nok);padding:20px;">Errore caricamento</td></tr>'; lTbody.innerHTML=''; rWrap.innerHTML=''; return; }
 
-        // Separa: FR in box (raggruppa per box) vs FR liberi
-        const loose = json.rows.filter(r => !r.box);
-        const boxed = json.rows.filter(r => r.box);
+        const rows = json.rows;
 
-        // --- Sezione box in deposito (una riga per box) ---
-        const boxMap = new Map();
-        boxed.forEach(r => {
-          if (!boxMap.has(r.box)) boxMap.set(r.box, { box:r.box, tipo:r.box_tipo, stato:r.box_stato, esito:r.esito, frs:[] });
-          boxMap.get(r.box).frs.push(r.fr);
+        // --- Sezione A: box in stato 'creato' (non spedita al terzista) ---
+        const boxedCreato = rows.filter(r => r.box && r.box_stato === 'creato');
+        const boxMapA = new Map();
+        boxedCreato.forEach(r => {
+          if (!boxMapA.has(r.box)) boxMapA.set(r.box, { box:r.box, tipo:r.box_tipo, stato:r.box_stato, esito:r.esito, frs:[] });
+          boxMapA.get(r.box).frs.push(r.fr);
         });
-        if (boxMap.size === 0) {
-          bTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:14px;">Nessuna box in deposito</td></tr>';
+        if (boxMapA.size === 0) {
+          bTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:14px;">Nessuna box in uscita al terzista</td></tr>';
         } else {
           bTbody.innerHTML = '';
-          [...boxMap.values()].forEach(b => {
+          [...boxMapA.values()].forEach(b => {
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td><span class="badge badge-creato">${b.box}</span> <span style="font-size:0.62rem;color:var(--text3);">${b.stato}</span></td>` +
+            tr.innerHTML = `<td><span class="badge badge-creato">${b.box}</span></td>` +
               `<td style="font-size:0.78rem;">${tipoLabel(b.tipo)}</td>` +
               `<td>${b.esito ? esitoBadgeFr(b.esito) : '—'}</td>` +
               `<td><strong>${b.frs.length}</strong> <span style="color:var(--text3);font-size:0.7rem;">FR</span></td>` +
@@ -1186,7 +1320,69 @@
           });
         }
 
-        // --- Sezione FR liberi ---
+        // --- Sezione B: box in stato 'in_deposito' (rientrate dal terzista, collassabili) ---
+        const boxedRientro = rows.filter(r => r.box && r.box_stato === 'in_deposito');
+        const boxMapB = new Map();
+        boxedRientro.forEach(r => {
+          if (!boxMapB.has(r.box)) boxMapB.set(r.box, { box:r.box, tipo:r.box_tipo, stato:r.box_stato, esito:r.esito, frs:[] });
+          boxMapB.get(r.box).frs.push({ fr: r.fr, esito: r.esito, ext_sn: r.ext_sn, tentativi: r.tentativi });
+        });
+        if (boxMapB.size === 0) {
+          rWrap.innerHTML = '<div style="text-align:center;color:var(--text3);padding:14px;font-size:0.8rem;">Nessuna box rientrata in deposito</div>';
+        } else {
+          rWrap.innerHTML = '';
+          [...boxMapB.values()].forEach(b => {
+            const riparati = b.frs.filter(f => f.esito === 'riparato').length;
+            const nonRip   = b.frs.filter(f => f.esito === 'non_riparabile').length;
+            const sospesi  = b.frs.length - riparati - nonRip;
+            const det = document.createElement('details');
+            det.className = 'box-rientro';
+            const summary = document.createElement('summary');
+            summary.innerHTML =
+              `<span class="badge badge-in-deposito">${b.box}</span>` +
+              `<span style="font-size:0.78rem;color:var(--text2);">${tipoLabel(b.tipo)}</span>` +
+              `<span style="font-size:0.78rem;"><strong>${b.frs.length}</strong>/24 FR</span>` +
+              `<span style="font-size:0.7rem;color:var(--ok);">✓${riparati}</span>` +
+              `<span style="font-size:0.7rem;color:var(--warn);">?${sospesi}</span>` +
+              (nonRip>0 ? `<span style="font-size:0.7rem;color:var(--nok);">⊘${nonRip}</span>` : '') +
+              `<span style="margin-left:auto;font-size:0.7rem;color:var(--text3);">▼ dettagli</span>`;
+            det.appendChild(summary);
+            const body = document.createElement('div');
+            body.className = 'box-rientro-body';
+            // lista FR con azioni
+            let frHtml = '<div style="margin:8px 0 10px;font-size:0.75rem;color:var(--text2);">FR nella box:</div>';
+            frHtml += '<div style="margin-bottom:12px;">';
+            b.frs.forEach(f => {
+              const esitoTag = f.esito === 'riparato' ? '<span style="color:var(--ok);">✓</span>'
+                : f.esito === 'non_riparabile' ? '<span style="color:var(--nok);">⊘</span>'
+                : '<span style="color:var(--warn);">?</span>';
+              frHtml += `<span class="fr-pill" title="${f.ext_sn||''} — tentativi:${f.tentativi||0}">${esitoTag} ${f.fr}</span>`;
+            });
+            frHtml += '</div>';
+            // azioni FR: sposta singolo FR alla box destinazione selezionata, o sciogli
+            frHtml += '<div style="font-size:0.75rem;color:var(--text2);margin-bottom:6px;">Sposta un FR:</div>';
+            frHtml += `<select id="dep-movefr-${b.box}" style="margin-bottom:6px;">` +
+              b.frs.map(f => `<option value="${f.fr}">${f.fr} (${f.esito || 'sospeso'})</option>`).join('') +
+              `</select>`;
+            frHtml += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">` +
+              `<button class="btn-dl green" style="width:auto;flex:none;padding:8px 12px;font-size:0.78rem;" onclick="moveFrFromDepositBox('${b.box}')">➡ Sposta alla box destinazione</button>` +
+              `<button class="btn-dl" style="width:auto;flex:none;padding:8px 12px;font-size:0.78rem;" onclick="sciogliFrFromDepositBox('${b.box}')">↩ Sciogli (FR libero)</button>` +
+              `<button class="btn-dl" style="width:auto;flex:none;padding:8px 12px;font-size:0.78rem;color:var(--nok);border-color:rgba(248,81,73,0.3);" onclick="setFrEsitoFromDepositBox('${b.box}','non_riparabile')">⊘ Dichiaro non riparabile</button>` +
+              `</div>`;
+            // azioni di box
+            frHtml += '<div style="font-size:0.75rem;color:var(--text2);margin-bottom:6px;border-top:1px dashed var(--border);padding-top:10px;">Azioni box:</div>';
+            frHtml += `<div style="display:flex;gap:6px;flex-wrap:wrap;">` +
+              `<button class="btn-primary" style="width:auto;flex:none;padding:8px 12px;font-size:0.78rem;" onclick="transformToCliente('${b.box}')">🔄 Trasforma in uscita cliente</button>` +
+              `<button class="btn-dl" style="width:auto;flex:none;padding:8px 12px;font-size:0.78rem;" onclick="openBoxInLookup('${b.box}')">🔍 Apri in Consulta Box</button>` +
+              `</div>`;
+            body.innerHTML = frHtml;
+            det.appendChild(body);
+            rWrap.appendChild(det);
+          });
+        }
+
+        // --- Sezione C: FR liberi (senza box) ---
+        const loose = rows.filter(r => !r.box);
         if (loose.length === 0) {
           lTbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:14px;">Nessun FR libero</td></tr>';
         } else {
@@ -1203,7 +1399,86 @@
       } catch(err) {
         bTbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--nok);padding:20px;">Errore di rete</td></tr>';
         lTbody.innerHTML = '';
+        rWrap.innerHTML = '';
       }
+    }
+
+    // Sposta un FR da una box rientrata (in_deposito) alla box destinazione selezionata
+    async function moveFrFromDepositBox(boxSerial) {
+      const sel = document.getElementById('dep-movefr-' + boxSerial);
+      const fr = sel ? sel.value : '';
+      const target = document.getElementById('dep-target-select').value;
+      if (!fr) { alert('Seleziona un FR.'); return; }
+      if (!target) { alert('Nessuna box destinazione disponibile con capienza. Crea prima una box vuota col pulsante in alto.'); return; }
+      if (target === boxSerial) { alert('La box destinazione coincide con la box sorgente.'); return; }
+      if (!confirm(`Spostare ${fr} dalla box ${boxSerial} alla box ${target}?`)) return;
+      try {
+        const res = await fetch('/api/outbox/assign', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ fr, target_box_serial: target })
+        });
+        const json = await res.json();
+        if (json.ok) { loadDeposito(); loadAssignableBoxesDep(); }
+        else { alert('Errore:\n' + json.error); }
+      } catch(err) { alert('Errore di rete.'); }
+    }
+
+    // Scioglie un FR da una box rientrata (in_deposito) -> FR libero nel deposito
+    async function sciogliFrFromDepositBox(boxSerial) {
+      const sel = document.getElementById('dep-movefr-' + boxSerial);
+      const fr = sel ? sel.value : '';
+      if (!fr) { alert('Seleziona un FR.'); return; }
+      if (!confirm(`Sciogliere ${fr} dalla box ${boxSerial}? Diventerà un FR libero nel deposito.`)) return;
+      try {
+        const res = await fetch(`/api/outbox/${encodeURIComponent(boxSerial)}/items/${encodeURIComponent(fr)}`, { method:'DELETE' });
+        const json = await res.json();
+        if (json.ok) { loadDeposito(); loadAssignableBoxesDep(); }
+        else { alert('Errore:\n' + json.error); }
+      } catch(err) { alert('Errore di rete.'); }
+    }
+
+    // Imposta esito "non riparabile" a un FR scelto in una box rientrata
+    async function setFrEsitoFromDepositBox(boxSerial, esito) {
+      const sel = document.getElementById('dep-movefr-' + boxSerial);
+      const fr = sel ? sel.value : '';
+      if (!fr) { alert('Seleziona un FR.'); return; }
+      if (!confirm(`Dichiarare ${fr} NON RIPARABILE? (esito "${esito}")`)) return;
+      try {
+        const res = await fetch(`/api/fr/${encodeURIComponent(fr)}/esito`, {
+          method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ esito })
+        });
+        const json = await res.json();
+        if (json.ok) { loadDeposito(); }
+        else { alert('Errore:\n' + json.error); }
+      } catch(err) { alert('Errore di rete.'); }
+    }
+
+    // Trasforma una box in_deposito in uscita_cliente (stesso seriale)
+    async function transformToCliente(boxSerial) {
+      const esito = prompt(`Trasformare la box ${boxSerial} in uscita_cliente.\nEsito (tutti gli FR devono essere omogenei):\n  riparato\n  non_riparabile`, 'riparato');
+      if (!['riparato','non_riparabile'].includes(esito)) { if (esito !== null) alert('Esito non valido.'); return; }
+      if (!confirm(`Trasformare ${boxSerial} in uscita_cliente (${esito})?\nLa box mantiene lo stesso seriale e lo storico. Gli FR diventano "raccolto" pronti per la spedizione al cliente.`)) return;
+      try {
+        const res = await fetch(`/api/outbox/${encodeURIComponent(boxSerial)}/transform-cliente`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ esito })
+        });
+        const json = await res.json();
+        if (json.ok) {
+          alert(json.message + (json.non_conformi ? '' : ''));
+          loadDeposito(); loadAssignableBoxesDep();
+          switchTab('lookup');
+          document.getElementById('lookup-box-input').value = boxSerial.replace(/^RBOX-/, '');
+          lookupBox();
+        } else {
+          let msg = json.error;
+          if (json.non_conformi && json.non_conformi.length) {
+            msg += '\n\nFR non conformi:\n' + json.non_conformi.map(n => `${n.fr} (${n.esito || 'sospeso'})`).join(', ');
+          }
+          alert('Errore:\n' + msg);
+        }
+      } catch(err) { alert('Errore di rete.'); }
     }
 
     function openBoxInLookup(serial) {
@@ -1226,8 +1501,10 @@
         }
         json.rows.forEach(b => {
           const opt = document.createElement('option');
+          const tagStato = b.stato === 'in_deposito' ? 'deposito' : 'creato';
+          const tagEsito = b.esito ? ` ${b.esito}` : '';
           opt.value = b.box_serial;
-          opt.textContent = `${b.box_serial} — ${b.tipo} (${b.count}/${b.max})`;
+          opt.textContent = `${b.box_serial} — ${tagStato}${tagEsito} (${b.count}/${b.max})`;
           sel.appendChild(opt);
         });
       } catch(err) {
