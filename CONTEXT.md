@@ -188,6 +188,18 @@ refurb_label_App/
 - **Test end-to-end** (su box temporanea RBOX-9999/9998 con FR finti, poi puliti): create -> ship -> return-box -> set esiti -> transform (fail per non conforme) -> sciogli FR -> transform OK -> spostamento FR tra box `in_deposito`. Tutto verificato; dati di test rimossi; RBOX-0009 ripristinata a 0 FR.
 - **TODO residui**: test in produzione del flusso completo su box reali (rientro box intera, spostamento FR, trasformazione); caso RBOX-0009 (box vuota in_deposito, decidere se archiviarla); storico FR/SN (vista); filtro dashboard; report/export dashboard.
 
+### Sessione del 2026-09-17 (stato box nel PDF distinta + fix Content-Disposition)
+
+- **Stato box nell'header del PDF distinta**: l'endpoint `/api/outbox/:box_serial/pdf` ora mostra una riga "Stato" nell'info-box con etichetta leggibile (mappa `statoLabels`):
+  - `creato` → "Creato (in attesa spedizione terzista/cliente)" (in base a `tipo`)
+  - `spedito` → "Spedito al terzista" / "Spedito al cliente" (in base a `tipo`)
+  - `in_deposito` → "Rientrato dal terzista — in deposito"
+  - `completato` → "Completato (deprecato)"
+  - Fallback: se stato non riconosciuto, mostra il valore raw.
+- **Titolo documento dinamico**: prima hardcoded "Distinta Box — Uscita verso terzista"; ora `docTitleLabel` si adatta al `tipo` box ("Uscita verso terzista" / "Uscita verso cliente").
+- **Fix Content-Disposition: inline → attachment**: entrambi gli endpoint PDF (`/api/pdf-collaudo/:ext_sn` e `/api/outbox/:box_serial/pdf`) passati da `Content-Disposition: inline` ad `attachment`. Il frontend usa `<a download>` per i PDF; `inline` (mostra inline) in conflitto con `a.download` (forza download) causava fallimenti intermittenti in Chrome ("Controlla la connessione a Internet"), in particolare su RBOX-0015. Con HTTPS attivo, `attachment` non genera più l'avviso "download pericoloso" (il problema originale che aveva motivato `inline`). Ora tutti i download (PDF/CSV/TXT) usano coerentemente `attachment`.
+- **Backup**: `server.js.bak_20260917_status_pdf` (pre-modifiche di questa sessione).
+
 ## Stato attuale
 
 - ✅ Sistema box fully functional: creazione, modifica/eliminazione (se non spedita), spedizione con DDT opzionale, rientro con DDT per FR, spostamento FR, dashboard
@@ -205,7 +217,8 @@ refurb_label_App/
 - ✅ Servizio systemd attivo e funzionante
 - ✅ **HTTPS** attivo su `https://10.11.12.8:3344` (certificato self-signed, eccezione da accettare al primo accesso browser)
 - ✅ PDF distinta box: data spedizione visibile, paginazione 20 FR/pagina, footer rimosso
-- ✅ Download PDF non più bloccati da Chrome (HTTPS + Content-Disposition inline)
+- ✅ **Stato box visibile nel PDF distinta** (etichetta leggibile + titolo dinamico terzista/cliente)
+- ✅ **Download PDF affidabile**: `Content-Disposition: attachment` + HTTPS (risolve fallimenti intermittenti in Chrome)
 - ✅ Tutte le modifiche committate e pushate su `origin/main`
 
 ## TODO / questioni aperte
@@ -244,7 +257,7 @@ refurb_label_App/
 - **Archiviazione**: si archiviano solo box vuote (0 FR); restano rintracciabili in Consulta Box (per seriale) ma spariscono dal tab Stato.
 - **Backup DB**: dump di sicurezza in `refurb_label_App/backups/` (gitignored). Ripristino: `psql -f backups/<file>.sql`
 - **HTTPS / TLS**: l'app serve su HTTPS (porta 3344) con certificato self-signed in `certs/` (valido 10 anni, SAN `IP:10.11.12.8`). Il primo accesso browser richiede accettazione manuale dell'eccezione di sicurezza. I vecchi bookmark `http://` vanno aggiornati a `https://`. I certificati non sono in git (gitignored).
-- **PDF download**: `Content-Disposition: inline` (non `attachment`) + `Content-Length` su entrambi gli endpoint PDF, per evitare blocchi di Chrome sui download. HTTPS risolve definitivamente l'avviso "download pericoloso".
+- **PDF download**: `Content-Disposition: attachment` + `Content-Length` su entrambi gli endpoint PDF. In precedenza si usava `inline` (per evitare blocchi Chrome su HTTP), ma creava conflitto con `a.download` del frontend causando download intermittenti falliti. Con HTTPS, `attachment` è la scelta corretta e coerente con CSV/TXT.
 - **PDF distinta box**: paginazione a 20 FR per pagina (`page-break-after: always`); la numerazione è continua across le pagine; l'intestazione tabella si ripete su ogni pagina. Footer rimosso.
 
 ## Casi in sospeso (2026-08-24, verifica reale)

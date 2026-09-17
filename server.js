@@ -755,7 +755,7 @@ app.get('/api/pdf-collaudo/:ext_sn', async (req, res) => {
 
       const filename = `collaudo_${ext_sn}.pdf`;
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.setHeader('Content-Length', fs.statSync(tmpPdf).size);
 
       const stream = fs.createReadStream(tmpPdf);
@@ -1482,6 +1482,16 @@ app.get('/api/outbox/:box_serial/pdf', async (req, res) => {
     const dataCreazione = new Date(box.data_creazione).toLocaleString('it-IT');
     const dataSpedizione = box.data_spedizione ? new Date(box.data_spedizione).toLocaleString('it-IT') : null;
 
+    // Mappa stato box → etichetta leggibile
+    const statoLabels = {
+      'creato':       box.tipo === 'uscita_cliente' ? 'Creato (in attesa spedizione cliente)' : 'Creato (in attesa spedizione terzista)',
+      'spedito':      box.tipo === 'uscita_cliente' ? 'Spedito al cliente' : 'Spedito al terzista',
+      'in_deposito':  'Rientrato dal terzista — in deposito',
+      'completato':   'Completato (deprecato)'
+    };
+    const statoLabel = statoLabels[box.stato] || box.stato;
+    const docTitleLabel = box.tipo === 'uscita_cliente' ? 'Uscita verso cliente' : 'Uscita verso terzista';
+
     // Paginazione: max 20 FR per pagina
     const PER_PAGE = 20;
     const pages = [];
@@ -1600,10 +1610,11 @@ app.get('/api/outbox/:box_serial/pdf', async (req, res) => {
     </div>
   </div>
 
-  <div class="doc-title">Distinta Box — Uscita verso terzista</div>
+  <div class="doc-title">Distinta Box — ${docTitleLabel}</div>
 
   <div class="info-box">
     <div class="row"><span class="k">Seriale box:</span><span class="v">${box_serial}</span></div>
+    <div class="row"><span class="k">Stato:</span><span class="v">${statoLabel}</span></div>
     <div class="row"><span class="k">Data creazione:</span><span class="v">${dataCreazione}</span></div>
     ${dataSpedizione ? `<div class="row"><span class="k">Data spedizione:</span><span class="v">${dataSpedizione}</span></div>` : ''}
     <div class="row"><span class="k">Totale FR:</span><span class="v">${frs.length}</span></div>
@@ -1634,7 +1645,7 @@ app.get('/api/outbox/:box_serial/pdf', async (req, res) => {
 
       const filename = `distinta_${box_serial}.pdf`;
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.setHeader('Content-Length', fs.statSync(tmpPdf).size);
 
       const stream = fs.createReadStream(tmpPdf);
