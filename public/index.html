@@ -999,21 +999,29 @@
     }
 
     // ── PDF ────────────────────────────────────────────────────────────────────
-    function downloadPdf() {
+    async function downloadPdf() {
       if (!lastVerifiedSn) return;
       btnPdf.disabled    = true;
       btnPdf.textContent = '⏳ Generazione PDF…';
       const url = `/api/pdf-collaudo/${lastVerifiedSn}`;
-      const a   = document.createElement('a');
-      a.href     = url;
-      a.download = `collaudo_${lastVerifiedSn}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a   = document.createElement('a');
+        a.href     = blobUrl;
+        a.download = `collaudo_${lastVerifiedSn}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+      } catch (err) {
+        alert(`Errore download PDF: ${err.message}`);
+      } finally {
         btnPdf.disabled    = false;
         btnPdf.textContent = '⬇\u00a0 Scarica PDF Collaudo';
-      }, 3000);
+      }
     }
 
     // Chiudi dialog con ESC

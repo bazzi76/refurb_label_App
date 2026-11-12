@@ -921,15 +921,28 @@
       } finally { btn.disabled = false; btn.classList.remove('loading'); }
     }
 
-    function downloadExport(format) {
+    async function downloadExport(format) {
       if (!lookupBoxSerial) return;
       const url = format === 'pdf'
         ? `/api/outbox/${encodeURIComponent(lookupBoxSerial)}/pdf`
         : `/api/outbox/${encodeURIComponent(lookupBoxSerial)}/export/${format}`;
       const ext = format === 'pdf' ? 'pdf' : format;
-      const a = document.createElement('a');
-      a.href = url; a.download = `${lookupBoxSerial}.${ext}`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      const btn = document.querySelector('#download-btns .btn-dl.green');
+      if (btn) { const orig = btn.textContent; btn.disabled = true; }
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl; a.download = `${lookupBoxSerial}.${ext}`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+      } catch (err) {
+        alert(`Errore download: ${err.message}`);
+      } finally {
+        if (btn) { btn.disabled = false; }
+      }
     }
 
     // ── ANNULLA SPEDIZIONE (spedito -> creato) ──
