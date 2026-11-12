@@ -219,6 +219,7 @@ refurb_label_App/
 - ✅ PDF distinta box: data spedizione visibile, paginazione 20 FR/pagina, footer rimosso
 - ✅ **Stato box visibile nel PDF distinta** (etichetta leggibile + titolo dinamico terzista/cliente)
 - ✅ **Download PDF affidabile**: `Content-Disposition: attachment` + HTTPS (risolve fallimenti intermittenti in Chrome)
+- ✅ **Operatore collaudatore fisso** nel PDF/verbale di collaudo: nome "Lorenzo Bigazzi" stampato nel box firma
 - ✅ Tutte le modifiche committate e pushate su `origin/main`
 
 ## TODO / questioni aperte
@@ -288,3 +289,137 @@ refurb_label_App/
 
 - **RBOX-0014 ricreata (2026-08-24)**: box eliminata in un test precedente (FR persi via CASCADE, non in fr_registry). Ricreata via Crea Box (seriale 0014, uscita_terzista, stato creato) con 7 FR reali recuperati dall'operatore. FR inseriti in fr_registry (in_box_terzista, esito null) + outbound_box_items (raccolto). Risultano in deposito (box creato). Totale: fr_registry 296, outbound_boxes 14, outbound_box_items 295.
 - **UI Deposito raggruppata**: FR in box compattati per box (una riga per box creato, con tasto Apri in Consulta Box); solo gli FR liberi (senza box) mostrati singolarmente con azioni assegna/dichiara non riparabile. Commit `cba68a5`.
+
+### Sessione del 2026-10-15 (indagine perdita dati giugno + retention backup 90gg)
+
+- **Retention backup aumentata a 90 giorni**: modificato `/home/giacomo/backup_postgres.sh` (`RETENTION_DAYS` da 30 a 90). Il cron giornaliero alle 02:00 ora mantiene 90 giorni di dump su NAS. Modifica effettiva da subito, nessun riavvio necessario.
+
+- **Problema segnalato dal cliente**: 2 dispositivi con **stesso SN `b827eb2710eb`** ma ext_sn e ICCID diversi. Indagine avviata per fare chiarezza.
+
+- **Indagine DB — risultati**:
+  - **`b827eb2710eb` completamente assente** dal DB: non in `device_tests`, `SGW_Lora_log`, `fr_registry`, `shipments`, `badge_events` né alcunaltra tabella. SN vicini nel range b827eb27* esistono ma questo specifico è sparito.
+
+### Sessione del 2026-10-15 (indagine perdita dati giugno + retention backup 90gg)
+
+- **Retention backup aumentata a 90 giorni**: modificato `/home/giacomo/backup_postgres.sh` (`RETENTION_DAYS` da 30 a 90). Il cron giornaliero alle 02:00 ora mantiene 90 giorni di dump su NAS. Modifica effettiva da subito, nessun riavvio necessario.
+
+- **Problema segnalato dal cliente**: 2 dispositivi con stesso SN `b827eb2710eb` ma ext_sn e ICCID diversi. Indagine avviata per fare chiarezza.
+
+- **Indagine DB - risultati**:
+  - **`b827eb2710eb` completamente assente** dal DB: non in `device_tests`, `SGW_Lora_log`, `fr_registry`, `shipments`, `badge_events` ne alcun'altra tabella. SN vicini nel range b827eb27* esistono ma questo specifico e sparito.
+  - **Gap temporale confermato 10-18 giugno 2026**: ultimo record prima del gap = id 756 (10 giu 17:32, SN b827ebf9fdaf); primo record dopo = id 811 (18 giu 09:55, SN b827eb4a6036). Nessun record dall'11 al 17 giugno. Salto di 54 ID (757-810).
+  - **54 ID "mancanti" (757-810) reinseriti a fine luglio**: gli ID 757-810 esistono ma con date di luglio (28-30 lug), non giugno. Probabile re-import manuale successivo all'evento di perdita dati. Il recupero e stato **incompleto**: `b827eb2710eb` era tra i record persi e non e stato recuperato.
+  - **27 SN con ext_sn diversi**: stesso SN fisico a cui sono stati assegnati ext_sn differenti nel tempo. Casi piu gravi:
+    - `b827eb51c7a7`: 3 ext_sn (80000748/80000775/80000786), tutti il 19 giu in 4 minuti
+    - `b827ebc1a777`: 2 ext_sn (80000254/80000413), 3 ICCID diversi, 9 giu
+    - `90e2fc700360`, `b827eb7c9d99`, `b827eb65b648` e altri 23
+  - **30 ext_sn condivisi tra SN diversi**: alcuni solo differenze maiuscolo/minuscolo, altri SN realmente diversi con stesso ext_sn (problema tracciabilita).
+  - **Totali DB**: 1658 record, 1173 SN univoci, 279 SN con record duplicati (molti normali = retest dopo NOK).
+  - **Altri gap ID**: id 1-2 mancanti (primi record, probabilmente test iniziali); id 1326 mancante (1 record, agosto, probabile delete manuale in test).
+  - **Log PostgreSQL non disponibili**: rotazione arrivata solo ad agosto, log di giugno cancellati.
+  - **Nessun backup pre-agosto**: impossibile confrontare con stato originale del DB a giugno. Backup manuali piu vecchi = 11 ago; backup NAS piu vecchio superstite = 20 set (30gg retention precedente).
+
+- **Ipotesi ricostruttiva**: un collaboratore ha causato perdita dati ~10-15 giugno (DELETE accidentale, script errato o altro). ~54 record persi. Recupero parziale a fine luglio con re-import manuale (ID 757-810) ma dati potenzialmente inaccurati -> SN/ext_sn mischiati. `b827eb2710eb` non recuperato.
+
+- **In attesa**: il collaboratore ha un backup che dovrebbe inviare in giornata. Prossima sessione: confrontare il backup con il DB attuale per identificare i record persi/corrotti e pianificare il ripristino selettivo.
+
+- **TODO**:
+  - Ricevere e analizzare il backup del collaboratore (pre-10 giugno)
+  - Confrontare backup vs DB attuale: identificare record persi (54 ID), record con SN/ext_sn scambiati
+  - Valutare ripristino selettivo dei record corretti
+  - Aggiungere vincolo UNIQUE su `sn` in `device_tests` per prevenire duplicati futuri (dopo ripristino)
+  - Valutare se i 27 SN con ext_sn multipli necessitano correzione manuale
+  - Verificare attendibilita dei 54 record reinseriti (ID 757-810, date luglio)
+
+
+### Sessione del 2026-10-16 (analisi backup collaboratore + indagine SN b827eb2710eb)
+
+- **Backup recuperato dal collaboratore**: file `backups/gmattei/device_tests_10-11-12-8_before_id_overwrite_20260730-161628.json` (28K). Documenta lo stato PRIMA di un'operazione di sovrascrittura del 30 luglio 2026.
+
+#### Struttura del backup
+
+- **`old_rows`**: 54 record originali (ID 757-810) con **date di giugno 2026** (11-18 giu), SN in **minuscolo** (`b827eb...`). Questi sono i dati ORIGINALI che sono stati sovrascritti. Sono l'unica copia superstite dei record di giugno.
+- **`appended_rows`**: 54 record (ID 1322-1375) con **date di luglio 2026** (28-30 lug), SN in **MAIUSCOLO** (`B827EB...`). Questi sono i record che sono stati copiati dentro 757-810 (sovrascrivendo i dati di giugno), poi cancellati da 1322-1375.
+- **Operazione descritta nel JSON**: `"replace target IDs 757-810 and remove copied IDs 1322-1375"`.
+
+#### Ricostruzione dell'evento
+
+1. **Giugno**: 54 record regolari (ID 757-810), date 11-18 giu, SN minuscoli.
+2. **~Fine luglio**: qualcuno inserisce 54 nuovi record (ID 1322-1375) con date 28-30 lug, SN maiuscoli.
+3. **30 luglio 16:16**: operazione di sovrascrittura — i dati di 1322-1375 vengono scritti dentro 757-810 (date giugno->luglio, SN minuscolo->maiuscolo), poi 1322-1375 vengono cancellati.
+4. **Dopo luglio**: nuovi record diversi vengono inseriti negli ID 1322-1375 (dati di agosto, altri dispositivi). ID 1326 risulta mancante.
+5. **Risultato attuale**: ID 757-810 contengono i dati di luglio; i dati originali di giugno sono perduti se non nel backup.
+
+#### Confronto backup vs DB attuale
+
+- **DB attuale**: 1658 record, max ID 1661, 1173 SN univoci, 280 ext_sn duplicati.
+- **SN dei old_rows (giugno)**:
+  - **21 SN univoci completamente assenti dal DB** (esistevano solo nei 54 record di giugno, ora persi). Include `b827eb2710eb` (3 record), `b827eb15ed31` (4 record), `b827eb1ef110`, `b827eb6061d1`, `b827eb8beeaf`, `b827eb619634`, ecc.
+  - **12 SN esistono altrove** nel DB (altri ID/date, es. retest successivi) — ma i loro record di giugno 11-18 sono comunque persi.
+- **Record di luglio (attualmente in 757-810)**:
+  - **48 su 54** hanno ext_sn che esiste **solo** in 757-810 (unici, non duplicati altrove).
+  - **6 record** hanno ext_sn duplicato altrove (ID 1277-1318), ma con differenze (esito diverso in 4 casi, quasi-duplicato in 2).
+  - I record di luglio in 757-810 hanno `data_stampa` aggiornata dopo l'overwrite (etichette stampate 30-31 lug), quindi rappresentano attivita reale successiva all'overwrite.
+- **Campo `fr`**: assente sia nei `old_rows` che negli `appended_rows` (colonna aggiunta dopo, sessione 8-10 ago).
+
+#### Impact su box_items (corruzione referenziale)
+
+- **45 box_items** in 3 box (BX202609010016, BX202609010017, BX202609020001, create 1-2 set 2026) puntano a `device_tests.id` nel range 757-810 via `shipment_id`.
+- Dopo l'overwrite, questi box_items referenziano i **dispositivi di luglio** (dati sovrascritti), non i dispositivi di giugno originali.
+- Le box sono state create a settembre lavorando con i dati di luglio (l'operatore ha scansionato/testato i dispositivi di luglio), quindi i box_items sono coerenti con il dato attuale — ma il collegamento ai record di giugno originali e perso.
+
+#### Indagine SN b827eb2710eb (segnalazione cliente)
+
+- **Segnalazione**: il cliente trova lo stesso SN `b827eb2710eb` in due file di spedizione con ext_sn e ICCID diversi:
+  - **Medinok - CT, 02/07/2026**: ext_sn 80000715, ICCID 89390100002365490055, INSTALLATO a I022RG (confermato da foto SGM)
+  - **Telebit - TO, 08/07/2026**: ext_sn 80000686, ICCID 89390100002384466474, IN GIACENZA
+- **Cronologia del dispositivo** (dal backup `old_rows`): `b827eb2710eb` e stato collaudato **3 volte** a giugno, ogni volta con ext_sn e ICCID diversi (ri-provisioning progressivo):
+  - 12 giu 14:16: ext_sn **80000686**, ICCID ...84466474, etichetta stampata 17 giu -> spedito a **Telebit 08/07**
+  - 12 giu 16:10: ext_sn 80000702, ICCID ...84466151, etichetta mai stampata -> non spedito
+  - 17 giu 15:29: ext_sn **80000715**, ICCID ...65490055, etichetta stampata 25 giu -> spedito a **Medinok 02/07**
+- **Conclusione**: `b827eb2710eb` e il SN **corretto per ext_sn 80000715** (Medinok, confermato installato). Il SN `b827eb2710eb` nella spedizione Telebit (ext_sn 80000686) e **errato** — si riferisce al primo provisioning del dispositivo, successivamente sostituito. Lo stesso SN fisico non puo essere in due posti.
+- **ext_sn 80000686**: usato da **2 dispositivi diversi** nei `old_rows`:
+  - ID 758: SN b827eb8fd914, ICCID ...69861558, 11 giu (primo utilizzo)
+  - ID 761: SN b827eb2710eb, ICCID ...84466474, 12 giu (riassegnato a dispositivo/SIM diversi)
+  - Nel DB attuale, b827eb8fd914 esiste con ext_sn 80000690 (ID 729, 10 giu). ext_sn 80000686 e **completamente assente** dal DB attuale.
+- **ICCID 89390100002384466474** (SIM spedizione Telebit): ricompare nel DB a ID 1319 (SN b827eb3adcb6, ext_sn 80001108, 28 lug) — la SIM e stata spostata su un altro dispositivo (normale nel refurb).
+- **ICCID 89390100002365490055** (SIM spedizione Medinok): non compare in nessun altro record del DB attuale.
+- **SN b827eb2710eb**: completamente assente dal DB attuale (tutti e 3 i record erano negli ID 761, 763, 773, tutti sovrascritti).
+- **Risposta al cliente**: non e possibile identificare con certezza il SN corretto per ext_sn 80000686 nella spedizione Telebit. L'unico SN noto per ext_sn 80000686 + ICCID ...66474 e b827eb2710eb, ma questo e confermato installato a Medinok con ext_sn 80000715. Il dispositivo effettivamente spedito a Telebit con ext_sn 80000686 e un altro gateway il cui SN non e tracciato nel DB a causa della perdita dati del 30 luglio.
+
+#### Tabelle DB aggiuntive scoperte (non documentate prima)
+
+Oltre a `device_tests`, `outbound_boxes`, `outbound_box_items`, `rientri`, `fr_registry`, `box_history`, il DB contiene:
+- **`shipments`** (id, sn, destination, notes, scanned_at) — per ora vuota per i SN in questione
+- **`destinations`** (id, name, created_at) — destinazioni: Deposito, BH MASSA, BH VIBO VALENTIA, BH AVENZA, PLURES sede FERRALE
+- **`boxes`** (id, box_sn, destination, items_count, notes, created_at) — box di spedizione
+- **`box_items`** (box_id, shipment_id FK->device_tests.id, position, added_at) — item nelle box
+- **`master_boxes`** (id, master_sn, destination, items_count, notes, created_at) — master box
+- **`master_box_items`** (master_box_id, box_id, position, added_at) — item nei master box
+- **`SGW_Lora_log`** (id, esn, station_eui, iccid, esito_test, data_test) — log test LoRaWAN (151 record, campo `esn` non corrisponde a SN/ext_sn)
+- **`badge_events`** — eventi badge
+
+#### Opzioni di ripristino (non ancora eseguite)
+
+- **Opzione A (consigliata)**: inserire i 54 `old_rows` come nuovi record (nuovi ID), preservando i 54 record di luglio attuali. Nessun dato perso, nessun rischio. Crea duplicati di SN per i 12 che esistono gia altrove (normale: retest). I 21 SN assenti tornano a esistere.
+- **Opzione B**: ripristinare 757-810 ai dati di giugno + re-inserire i 48 record unici di luglio come nuovi. Piu complessa, rischiosa.
+- **Opzione C (ibrida)**: inserire old_rows come nuovi record, poi valutare se i 48 record di luglio in 757-810 sono reali o artefatti dell'operazione errata.
+- **In sospeso**: decidere strategia con il cliente. Per ora **nessuna modifica al DB**.
+
+#### TODO aggiornati
+
+- Decidere e eseguire ripristino dei 54 record di giugno (opzione da confermare)
+- Rispondere formalmente al cliente re: SN b827eb2710eb / ext_sn 80000686 (spedizione Telebit)
+- Valutare correzione dei 45 box_items che puntano a ID 757-810 (dopo ripristino, se si cambia strategia)
+- Aggiungere vincolo UNIQUE su `sn` in `device_tests` (dopo ripristino) — attenzione: il ri-provisioning crea legittimamente SN duplicati con ext_sn diversi; valutare UNIQUE su `(sn, ext_sn)` o solo su `ext_sn`
+- Documentare le tabelle `shipments`, `boxes`, `box_items`, `master_boxes`, `master_box_items`, `SGW_Lora_log`, `badge_events` nel CONTEXT
+- Storico FR/SN (vista) — da progettare
+- Filtro dashboard / report export dashboard
+- FR "Non Riparabile" — flusso da definire
+
+### Sessione del 2026-11-12 (nome operatore collaudatore fisso nel PDF collaudo)
+
+- **Operatore collaudatore fisso nel PDF/verbale di collaudo**: in `buildCollaudoHTML` (`server.js`), il box firma "Operatore collaudatore" ora stampa il nome **Lorenzo Bigazzi** sopra la riga di firma (font 11pt grassetto), mantenendo sotto la riga + etichetta "Operatore collaudatore". Il box "Responsabile controllo qualità" resta invariato (firma manuale).
+- **Backup**: `server.js.bak_20261112_operatore`; `CONTEXT.md.bak_20261112`.
+- **Servizio riavviato**: `sudo systemctl restart refurb-labeler.service` (modifica a `server.js`).
+- **Non ancora committato/pushato** (modifica locale sul server in attesa di istruzioni).

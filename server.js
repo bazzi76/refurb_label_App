@@ -420,7 +420,10 @@ function buildCollaudoHTML(row) {
   </div>
 
   <div class="firma-section">
-    <div class="firma-box">Operatore collaudatore</div>
+    <div class="firma-box" style="border-top:none;">
+      <div style="font-size:11pt;font-weight:700;color:#1a1a1a;margin-bottom:14px;">Lorenzo Bigazzi</div>
+      <div style="border-top:1px solid #ccc;padding-top:5px;font-size:8pt;color:#888;">Operatore collaudatore</div>
+    </div>
     <div class="firma-box">Responsabile controllo qualità</div>
   </div>
 
