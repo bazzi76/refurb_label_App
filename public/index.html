@@ -594,6 +594,13 @@
                   <option value="uscita_terzista">Uscita verso terzista</option>
                   <option value="rientro_terzista">Rientro dal terzista</option>
                 </select>
+                <div id="assign-new-esito-wrap" hidden style="margin-top:8px;">
+                  <label for="assign-new-esito" style="display:block; font-size:0.72rem; font-weight:600; color:var(--text2); margin-bottom:4px;">Esito</label>
+                  <select id="assign-new-esito" style="width:100%; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:var(--sans); font-size:0.85rem; padding:8px 10px; outline:none;">
+                    <option value="riparato">Riparato</option>
+                    <option value="non_riparabile">Non riparabile</option>
+                  </select>
+                </div>
               </div>
               <button class="btn-action blue" id="assign-new-btn" onclick="assignNewBox()" style="margin:0; flex:none;">➕ Crea e assegna</button>
             </div>
@@ -730,6 +737,14 @@
     // ── GESTIONE BOX (deposito / assegnazione) ─────────────────────────────────
     let currentBox = null;
     let currentFR  = null;
+    let currentRegEsito = null;
+
+    // Mostra/nasconde il selettore esito in base al tipo box
+    var assignNewTipoSel = document.getElementById("assign-new-tipo");
+    var assignNewEsitoWrap = document.getElementById("assign-new-esito-wrap");
+    function toggleAssignNewEsito() { assignNewEsitoWrap.hidden = (assignNewTipoSel.value !== "uscita_cliente"); }
+    assignNewTipoSel.addEventListener("change", toggleAssignNewEsito);
+    toggleAssignNewEsito(); // stato iniziale
 
     function updateBoxAssign(box, fr) {
       const sec = document.getElementById('box-assign');
@@ -795,12 +810,12 @@
       try {
         const res = await fetch('/api/outbox/assign-new', {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ fr: currentFR, tipo })
+          body: JSON.stringify(Object.assign({ fr: currentFR, tipo }, tipo === "uscita_cliente" ? { esito: document.getElementById("assign-new-esito").value } : {}))
         });
         const json = await res.json();
         if (json.ok) { alert(json.message); submitVerify(); }
         else { alert('Errore:\n' + json.error); }
-      } catch(err) { alert('Errore di rete.'); }
+      } catch(err) { console.error("assignNewBox error:", err); alert("Errore di rete."); }
       finally { btn.disabled = false; }
     }
 
@@ -850,6 +865,9 @@
         const reg  = json.registry;
         const fr   = reg ? reg.fr : (data ? data.fr : null);
         const esitoLabel = reg ? (reg.esito === 'riparato' ? 'riparato' : (reg.esito === 'non_riparabile' ? 'NON riparabile' : 'in sospeso')) : '—';
+        currentRegEsito = reg ? reg.esito : null;
+        var _esitoSel = document.getElementById("assign-new-esito");
+        if (_esitoSel && currentRegEsito) _esitoSel.value = currentRegEsito;
 
         if (!data) {
           // FR in anagrafica senza collaudo (in deposito, pre-terzista)

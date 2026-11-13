@@ -573,7 +573,13 @@
     const frMaxInput  = document.getElementById('fr-max-input');
     const frMaxLabel  = document.getElementById('fr-max-label');
     const boxTipoSelect = document.getElementById('box-tipo-select');
+    const boxEsitoSelect = document.getElementById('box-esito-select');
     const createBtn   = document.getElementById('create-btn');
+    // Mostra/nasconde il selettore esito in base al tipo box
+    const esitoWrap = document.getElementById("esito-select-wrap");
+    function toggleEsitoWrap() { esitoWrap.hidden = (boxTipoSelect.value !== "uscita_cliente"); }
+    boxTipoSelect.addEventListener("change", toggleEsitoWrap);
+    toggleEsitoWrap(); // stato iniziale
 
     function getMaxFR() { const v = parseInt(frMaxInput.value) || 24; return v > 0 ? v : 24; }
     function refreshMaxLabel() { frMaxLabel.textContent = getMaxFR(); }
@@ -683,6 +689,7 @@
           showCreateResult('nok', '✕ ERRORE', json.error);
         }
       } catch(err) {
+        console.error("createBox error:", err);
         showCreateResult('nok', '✕ ERRORE DI RETE', 'Impossibile contattare il server. Verifica la connessione.');
       } finally { setCreateLoading(false); }
     }
