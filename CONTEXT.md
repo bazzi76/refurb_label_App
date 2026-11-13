@@ -200,6 +200,47 @@ refurb_label_App/
 - **Fix Content-Disposition: inline → attachment**: entrambi gli endpoint PDF (`/api/pdf-collaudo/:ext_sn` e `/api/outbox/:box_serial/pdf`) passati da `Content-Disposition: inline` ad `attachment`. Il frontend usa `<a download>` per i PDF; `inline` (mostra inline) in conflitto con `a.download` (forza download) causava fallimenti intermittenti in Chrome ("Controlla la connessione a Internet"), in particolare su RBOX-0015. Con HTTPS attivo, `attachment` non genera più l'avviso "download pericoloso" (il problema originale che aveva motivato `inline`). Ora tutti i download (PDF/CSV/TXT) usano coerentemente `attachment`.
 - **Backup**: `server.js.bak_20260917_status_pdf` (pre-modifiche di questa sessione).
 
+### Sessione del 2026-11-12 (indagine errore di rete su assegnazione FR a box cliente)
+
+- **Problema segnalato**: il collega cerca di assegnare FR a una box `uscita_cliente` (per rispedire al cliente finale) e ottiene "Errore di rete", ma la connessione funziona (la pagina carica).
+- **FR coinvolti**: inizialmente FR10962, FR13863; poi estesi a 7 (FR46389, FR13274, FR37897, FR47912, FR18369, FR10962, FR13863).
+- **Diagnosi server-side**:
+  - Processo Node sano (up 7h, 90MB RSS, nessun OOM, nessun restart anomalo); Pool pg default (max 10).
+  - Tutti gli endpoint coinvolti (`/api/outbox/assign`, `/assign-new`, `/create`, `/assignable-boxes`, `/deposito`) testati via curl: rispondono **sempre JSON valido**.
+  - Riprodotta la creazione esatta del collega (Crea Box, 7 FR, `uscita_cliente`/`riparato`) via curl: **200 OK**, "Box creato con 7 FR associati". Server a posto al 100%.
+  - **Nessun log** dal servizio nei 30 min attorno al tentativo del collega: la richiesta verosimilmente **non e mai arrivata al server** (l'endpoint `create` logga solo sui 500, non sui 4xx ne sui successi).
+  - I 7 FR sono tutti validi: presenti in `fr_registry`, esito `riparato` (omogeneo), in `deposito`, nessun conflitto cross-box.
+- **Conclusione**: l'"Errore di rete" e il `catch(err)` del frontend, che scatta quando `fetch()` o `res.json()` lanciano eccezione. Poiche il server risponde sempre JSON, la causa e **browser-server** (es. URL `http://` invece di `https://`, eccezione cert self-signed non accettata per le chiamate API, rete remota instabile). Da verificare con F12 -> Network.
+- **Operazioni DB eseguite** (con approvazione utente):
+  - Cancellate **RBOX-0034** (id 48, `in_deposito`, 0 FR) e **RBOX-0035** (id 49, `uscita_cliente`/`creato`, 1 FR) - create per errore. RBOX-0035 era stata creata da me in un test diagnostico (assegnazione FR10962). CASCADE: item eliminati, `rientri` preservati con `outbound_item_id=NULL`, `box_history` rimosso.
+  - L'utente ha sciolto 3 FR da RBOX-0022 (FR13863, FR46389, FR47912) -> tutti correttamente a `deposito`, esito `riparato`. RBOX-0022 scesa da 24 a 21 FR.
+  - FR10962 rimesso a `deposito` (era `in_box_cliente` per il mio test).
+  - Verificata consistenza DB: 0 item orfani, 0 mismatch `fr_registry.stato` vs box reale, 55 FR liberi in deposito.
+- **Bug trovato (non ancora fixato)**: `index.html` `assignNewBox()` invia `{ fr, tipo }` **senza `esito`** -> creare una box `uscita_cliente` dalla pagina Verifica & Stampa fallisce sempre con 400 "esito obbligatorio". Il tab Crea Box in `outbox.html` invece invia `esito` correttamente. Da fixare (aggiungere selettore esito o dedurlo da `fr_registry`).
+- **RBOX-0022**: ancora 2 FR con esito NULL (FR25751, FR32054) -> bloccherebbero la trasformazione in `uscita_cliente` (non rilevante per il flusso attuale di estrazione FR, ma da risolvere se si vuole trasformare la box intera).
+- **Test rimandati a domani**: verifica browser F12 -> Network per pinpointare l'errore di rete del collega (URL http/https, eccezione cert self-signed, status della richiesta `create`).
+
+### Sessione del 2026-11-13 (fix creazione box uscita_cliente — root cause trovata)
+
+- **Problema**: creazione di box `uscita_cliente` falliva sempre con "Errore di rete" da entrambe le pagine (Crea Box in `outbox.html` e Verifica & Stampa in `index.html`). Nessun errore visibile in console Chrome. Il problema esisteva fin dalla introduzione del campo esito (sessione 2026-08-24) — **nessuna box `uscita_cliente` era mai stata creata con successo**.
+- **Diagnosi**:
+  - Server sano: endpoint `/api/outbox/create` e `/api/outbox/assign-new` rispondono sempre JSON valido (testato via curl con 20 FR reali, 200 OK in 18ms).
+  - **Root cause `outbox.html`**: la variabile `boxEsitoSelect` **non era mai dichiarata** nel JS (manca `const boxEsitoSelect = document.getElementById(...)`). Quando `tipo === 'uscita_cliente'`, la riga `boxEsitoSelect.value` in `Object.assign(...)` lancia `ReferenceError` **dentro il try**, catturato dal catch → mostra "ERRORE DI RETE". La `fetch` non veniva mai chiamata (nessun log server-side, nulla in console perché il catch non ha `console.error`).
+  - **Bug secondario `outbox.html`**: il wrapper `esito-select-wrap` era sempre `hidden` — mancava il listener per mostrarlo al cambio tipo.
+  - **Bug `index.html`**: `assignNewBox()` inviava `{ fr, tipo }` **senza `esito`** → 400 "esito obbligatorio" dal server. Inoltre non c'era alcun selettore esito nella UI di Verifica & Stampa.
+- **Fix `outbox.html`** (3 modifiche):
+  - Dichiarata `const boxEsitoSelect = document.getElementById('box-esito-select')`.
+  - Aggiunto `toggleEsitoWrap()` + listener `change` su `boxTipoSelect` per mostrare/nascondere il selettore esito.
+  - Aggiunto `console.error("createBox error:", err)` nel catch di `createBox()`.
+- **Fix `index.html`** (6 modifiche):
+  - Aggiunto `<select id="assign-new-esito">` (Riparato/Non Riparabile) nella sezione Gestione box, visibile solo per `uscita_cliente`.
+  - Aggiunta variabile globale `currentRegEsito`; dopo verify viene salvato `reg.esito` e pre-selezionato il dropdown.
+  - `assignNewBox()` ora invia `esito` nel payload quando `tipo === 'uscita_cliente'` (via `Object.assign`).
+  - Aggiunto `console.error` nel catch di `assignNewBox()`.
+- **Verifica**: l'utente ha creato con successo **RBOX-0034** (`uscita_cliente`/`riparato`, 20 FR) dal tab Crea Box dopo il fix. Prima box `uscita_cliente` mai creata nel sistema.
+- **Backup**: `outbox.html.bak_20261113_esito`; `index.html.bak_20261113_esito`.
+- **Commit**: `3631436` — fix(ui): box uscita_cliente — selettore esito + variabili non dichiarate. Pushato su `origin/main`.
+
 ## Stato attuale
 
 - ✅ Sistema box fully functional: creazione, modifica/eliminazione (se non spedita), spedizione con DDT opzionale, rientro con DDT per FR, spostamento FR, dashboard
@@ -220,7 +261,8 @@ refurb_label_App/
 - ✅ **Stato box visibile nel PDF distinta** (etichetta leggibile + titolo dinamico terzista/cliente)
 - ✅ **Download PDF affidabile**: `Content-Disposition: attachment` + HTTPS (risolve fallimenti intermittenti in Chrome)
 - ✅ **Operatore collaudatore fisso** nel PDF/verbale di collaudo: nome "Lorenzo Bigazzi" stampato nel box firma
-- ✅ Tutte le modifiche committate e pushate su `origin/main`
+- ✅ **Creazione box `uscita_cliente` funzionante** da Crea Box (`outbox.html`) e Verifica & Stampa (`index.html`): selettore esito, validazione omogeneità, pre-selezione da `fr_registry`
+- ✅ Tutte le modifiche committate e pushate su `origin/main` (ultimo commit: `3631436`)
 
 ## TODO / questioni aperte
 
@@ -230,6 +272,7 @@ refurb_label_App/
   - Serve tenerne traccia per rendicontare al cliente (stato/etichetta dedicata, flusso di uscita cliente marcato "Non Riparabile", eventuale report).
   - Da definire: come contrassegnarli (flag in `device_tests`/`outbound_box_items`? tipo box dedicato?), come gestirli nel rientro e nel dashboard, ed eventuale dicitura su etichetta/report.
 - **Storico FR / SN** (uso interno/statistico): vista che, dato un FR o uno SN, ricostruisce il suo percorso (box terzista, spedizioni, rientri, DDT, date) aggregando `device_tests` + `outbound_box_items` + `rientri`. Da progettare.
+- **RBOX-0022 - 2 FR con esito NULL** (FR25751, FR32054): vanno sciolti/spostati o marcati con esito prima di poter trasformare la box in `uscita_cliente`.
 - Test in produzione di `gateway_test_V2.0.sh` (script collaudo + campo FR)
 - Flusso `uscita_cliente` da testare end-to-end in produzione
 - Possibile necessità di filtro nel dashboard per tipo box o intervallo date
